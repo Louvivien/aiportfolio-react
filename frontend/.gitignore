@@ -1,0 +1,10 @@
+# Dependencies
+node_modules
+
+# Production build
+dist
+
+# Editor settings
+.DS_Store
+.idea
+*.log
