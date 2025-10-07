@@ -27,12 +27,19 @@ aiportfolio-react/
 - Node.js 18+ (for both back-end and front-end)
 - MongoDB instance (Atlas or self-hosted) reachable via connection string
 
-## 1. Configure & run the backend
+## 1. Install dependencies
+
+From the repo root:
+
+```bash
+npm install   # installs both backend/ and frontend/ workspaces
+```
+
+## 2. Configure & run the backend
 
 ```bash
 cd backend
 cp .env.example .env        # then update MONGODB_URI (and PORT if desired)
-npm install
 npm run dev                 # launches Express on http://127.0.0.1:4000
 ```
 
@@ -50,11 +57,10 @@ The API exposes the same contract as the original FastAPI service:
 
 It connects to MongoDB collections `positions` and `tags`, enriches rows with live data from Yahoo Finance, and mirrors the calculations from the previous FastAPI implementation (intraday changes, 10-day deltas, tag aggregation, and time-series roll-ups).
 
-## 2. Start the React dashboard
+## 3. Start the React dashboard
 
 ```bash
 cd frontend
-npm install
 npm run dev                # serves http://localhost:5173
 ```
 
@@ -80,16 +86,16 @@ This repo now includes an `api/[...path].mjs` catch-all function that wraps the 
 1. Push the repo to Git and run `vercel` from the project root (or connect the GitHub repo in the Vercel dashboard).
 2. Set build settings:
    - **Framework**: `Other`.
-   - **Build Command**: `npm run build` inside `frontend/`.
+   - **Install Command**: `npm install`
+   - **Build Command**: `npm run build:frontend`
    - **Output Directory**: `frontend/dist`.
-   - **Install Command**: `npm install --prefix frontend`.
 3. Under **Environment Variables**, add `MONGODB_URI` (and any others you need). No `PORT` is required.
 4. Vercel will serve the static frontend and proxy `/api/*` requests to the serverless Express handler.
 
 ### Local parity after the changes
 
-- Backend: `npm run dev` (or `npm run start`) continues to run a long-lived Express server on port 4000.
-- Frontend: `npm run dev` still proxies `/api` to `http://127.0.0.1:4000`.
+- Backend: `npm run dev:backend` (or `npm run start --workspace backend`) runs the Express server on port 4000.
+- Frontend: `npm run dev:frontend` proxies `/api` to `http://127.0.0.1:4000`.
 - If you want the frontend to talk to a different API host, set `VITE_API_BASE` (e.g. `VITE_API_BASE=https://your-app.vercel.app/api`) before building.
 
 ## Testing
