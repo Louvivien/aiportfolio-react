@@ -9,9 +9,12 @@
   "scripts": {
     "install:frontend": "npm install --workspace frontend",
     "install:backend": "npm install --workspace backend",
-    "build:frontend": "npm run build --workspace frontend",
+    "build:frontend": "cross-env ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1 npm run build --workspace frontend",
     "lint": "npm run lint --workspace frontend",
     "dev:backend": "npm run dev --workspace backend",
     "dev:frontend": "npm run dev --workspace frontend"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3"
   }
 }

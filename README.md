@@ -87,12 +87,12 @@ This repo now includes an `api/[...path].mjs` catch-all function that wraps the 
 2. Set build settings:
    - **Framework**: `Other`.
    - **Install Command**: `npm install`
-   - **Build Command**: `npm run build:frontend`
+   - **Build Command**: `npm run build:frontend` (the script already sets `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1`)
    - **Output Directory**: `frontend/dist`.
 3. Under **Environment Variables**, add `MONGODB_URI` (and any others you need). No `PORT` is required.
 4. Vercel will serve the static frontend and proxy `/api/*` requests to the serverless Express handler.
 
-> **Note:** The project includes a root `.npmrc` with `rollup_skip_nodejs_native_build=true` so Vite/rollup fall back to the portable build on Vercel’s Node runtime. Leave that file in place (or set the same env var in Vercel) to avoid native-module build failures during deploys.
+> **Note:** The build script sets `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1` (and the repo also ships with a `.npmrc` containing the same flag) so rollup uses its portable build on Vercel’s Node runtime. Leave those in place—or set the env var manually—otherwise the deploy will fail when rollup tries to compile native bindings.
 
 ### Local parity after the changes
 
