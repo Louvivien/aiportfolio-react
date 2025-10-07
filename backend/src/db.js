@@ -1,24 +1,40 @@
 import { MongoClient } from "mongodb";
 import { config } from "./config.js";
 
-let client;
-let database;
+let cachedClient;
+let cachedDb;
+let connectingPromise;
 
 export async function initDb() {
-  if (database) {
-    return database;
+  if (cachedDb) {
+    return cachedDb;
   }
-  client = new MongoClient(config.mongodbUri);
-  await client.connect();
-  database = client.db(config.mongodbDb);
-  return database;
+  if (connectingPromise) {
+    return connectingPromise;
+  }
+
+  const client = new MongoClient(config.mongodbUri);
+
+  connectingPromise = client
+    .connect()
+    .then((connected) => {
+      cachedClient = connected;
+      cachedDb = connected.db(config.mongodbDb);
+      return cachedDb;
+    })
+    .catch((error) => {
+      connectingPromise = undefined;
+      throw error;
+    });
+
+  return connectingPromise;
 }
 
 export function getDb() {
-  if (!database) {
+  if (!cachedDb) {
     throw new Error("Database has not been initialised. Call initDb() first.");
   }
-  return database;
+  return cachedDb;
 }
 
 export function getCollections() {
@@ -30,9 +46,10 @@ export function getCollections() {
 }
 
 export async function shutdown() {
-  if (client) {
-    await client.close();
-    client = undefined;
-    database = undefined;
+  if (cachedClient) {
+    await cachedClient.close();
+    cachedClient = undefined;
+    cachedDb = undefined;
+    connectingPromise = undefined;
   }
 }

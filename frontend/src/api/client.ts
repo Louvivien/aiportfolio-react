@@ -10,8 +10,10 @@ import type {
   UpdatePositionPayload,
 } from "./types";
 
+const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+
 const client = axios.create({
-  baseURL: "/api",
+  baseURL: API_BASE,
   timeout: 20000,
 });
 
