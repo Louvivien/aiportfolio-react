@@ -92,6 +92,8 @@ This repo now includes an `api/[...path].mjs` catch-all function that wraps the 
 3. Under **Environment Variables**, add `MONGODB_URI` (and any others you need). No `PORT` is required.
 4. Vercel will serve the static frontend and proxy `/api/*` requests to the serverless Express handler.
 
+> **Note:** The project includes a root `.npmrc` with `rollup_skip_nodejs_native_build=true` so Vite/rollup fall back to the portable build on Vercel’s Node runtime. Leave that file in place (or set the same env var in Vercel) to avoid native-module build failures during deploys.
+
 ### Local parity after the changes
 
 - Backend: `npm run dev:backend` (or `npm run start --workspace backend`) runs the Express server on port 4000.
