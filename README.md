@@ -84,7 +84,7 @@ npm run preview            # optional local preview of the bundle
 This repo includes an `api/[...path].mjs` catch-all that wraps the Express app for serverless usage and a `vercel.json` file so the project builds with no dashboard tweaks.
 
 1. Connect the Git repository to Vercel (or run `vercel` from the repo root).
-2. Accept the defaults—`vercel.json` already pins the install/build commands, output directory, and Node.js runtime.
+2. Accept the defaults—`vercel.json` already pins the install/build commands and output directory.
 3. Deploy. Vercel serves the static bundle from `frontend/dist` and routes `/api/*` to the serverless Express handler.
 
 > **Note:** The build uses `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1` so rollup ships a portable binary—do not remove this environment variable.
