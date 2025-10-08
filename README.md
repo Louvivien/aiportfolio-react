@@ -81,18 +81,21 @@ npm run preview            # optional local preview of the bundle
 
 ## Deploying to Vercel
 
-This repo now includes an `api/[...path].mjs` catch-all function that wraps the Express app for Vercel serverless. Deployment steps:
+This repo includes an `api/[...path].mjs` catch-all that wraps the Express app for serverless usage and a `vercel.json` file so the project builds with no dashboard tweaks.
 
-1. Push the repo to Git and run `vercel` from the project root (or connect the GitHub repo in the Vercel dashboard).
-2. Set build settings:
-   - **Framework**: `Other`.
-   - **Install Command**: `npm install`
-   - **Build Command**: `npm run build:frontend` (the script already sets `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1`)
-   - **Output Directory**: `frontend/dist`.
-3. Under **Environment Variables**, add `MONGODB_URI` (and any others you need). No `PORT` is required.
-4. Vercel will serve the static frontend and proxy `/api/*` requests to the serverless Express handler.
+1. Connect the Git repository to Vercel (or run `vercel` from the repo root).
+2. Accept the defaults—`vercel.json` already pins the install/build commands, output directory, and Node.js runtime.
+3. Deploy. Vercel serves the static bundle from `frontend/dist` and routes `/api/*` to the serverless Express handler.
 
-> **Note:** The build script sets `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1` (and the repo also ships with a `.npmrc` containing the same flag) so rollup uses its portable build on Vercel’s Node runtime. Leave those in place—or set the env var manually—otherwise the deploy will fail when rollup tries to compile native bindings.
+> **Note:** The build uses `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1` so rollup ships a portable binary—do not remove this environment variable.
+
+### MongoDB Atlas integration on Vercel
+
+1. In the Vercel dashboard open **Integrations → Marketplace** and add **MongoDB Atlas** to your team.
+2. Select the project, choose “Link an existing deployment” (or create a new Atlas cluster), and Grant access.
+3. Pick the cluster/database you want Vercel to manage and confirm the connection. Vercel adds `MONGODB_URI` and `MONGODB_DATABASE` secrets to the project automatically.
+4. No extra configuration is required in code—the backend reads those variables via `backend/src/config.js`.
+5. For local parity run `cp backend/.env.example backend/.env` and paste the same `MONGODB_URI`. The optional `MONGODB_DB` override falls back to the Atlas database name if omitted.
 
 ### Local parity after the changes
 
