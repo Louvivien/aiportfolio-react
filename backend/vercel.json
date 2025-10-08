@@ -1,0 +1,9 @@
+{
+  "framework": "other",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.mjs"
+    }
+  ]
+}

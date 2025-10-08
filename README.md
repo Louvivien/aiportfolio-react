@@ -93,7 +93,7 @@ Create two Vercel projects—one for the React bundle, one for the API.
 ### Backend project (Express on serverless functions)
 
 1. Create another Vercel project from the same repo but set **Root Directory** to `backend`.
-2. Skip the build command (leave it blank). Vercel deploys the handlers in `backend/api/[...path].mjs` automatically after `npm install`.
+2. Skip the build command (leave it blank). Vercel uses `backend/vercel.json` to route every `/api/*` request to the Express bridge in `backend/api/index.mjs`.
 3. Add the MongoDB Atlas integration (or set env vars manually). At minimum provide `MONGODB_URI`; Atlas also supplies `MONGODB_DATABASE`.
 4. If the frontend uses the deployed backend, remember to copy the production URL into the frontend project’s `VITE_API_BASE`.
 5. For local parity run `cp backend/.env.example backend/.env` and reuse the same connection string.
