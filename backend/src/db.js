@@ -13,7 +13,9 @@ export async function initDb() {
     return connectingPromise;
   }
 
-  const client = new MongoClient(config.mongodbUri);
+  const client = new MongoClient(config.mongodbUri, {
+    ...config.mongodbOptions,
+  });
 
   connectingPromise = client
     .connect()
@@ -24,6 +26,12 @@ export async function initDb() {
     })
     .catch((error) => {
       connectingPromise = undefined;
+      if (!error?.status) {
+        error.status = 503;
+      }
+      if (!error?.message) {
+        error.message = "Failed to connect to MongoDB";
+      }
       throw error;
     });
 

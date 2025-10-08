@@ -11,6 +11,9 @@ const {
   MONGODB_DB,
   MONGODB_DATABASE,
   MONGODB_DEFAULT_DB,
+  MONGODB_SERVER_SELECTION_TIMEOUT_MS,
+  MONGODB_CONNECT_TIMEOUT_MS,
+  MONGODB_SOCKET_TIMEOUT_MS,
   PORT,
 } = process.env;
 
@@ -40,8 +43,19 @@ const inferDatabaseName = (uri) => {
 
 const inferredDb = inferDatabaseName(mongodbUri);
 
+const parsePositiveNumber = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 export const config = {
   mongodbUri,
   mongodbDb: MONGODB_DB || MONGODB_DATABASE || MONGODB_DEFAULT_DB || inferredDb || "aiportfolio",
+  mongodbOptions: {
+    serverSelectionTimeoutMS: parsePositiveNumber(MONGODB_SERVER_SELECTION_TIMEOUT_MS, 8000),
+    connectTimeoutMS: parsePositiveNumber(MONGODB_CONNECT_TIMEOUT_MS, 8000),
+    socketTimeoutMS: parsePositiveNumber(MONGODB_SOCKET_TIMEOUT_MS, 20000),
+    maxIdleTimeMS: 60_000,
+  },
   port: Number(PORT) || 4000,
 };

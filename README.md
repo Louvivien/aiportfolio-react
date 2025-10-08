@@ -97,6 +97,7 @@ Create two Vercel projects—one for the React bundle, one for the API.
 3. Add the MongoDB Atlas integration (or set env vars manually). At minimum provide `MONGODB_URI`; Atlas also supplies `MONGODB_DATABASE`.
 4. If the frontend uses the deployed backend, remember to copy the production URL into the frontend project’s `VITE_API_BASE`.
 5. For local parity run `cp backend/.env.example backend/.env` and reuse the same connection string.
+6. Optional: adjust `MONGODB_SERVER_SELECTION_TIMEOUT_MS`, `MONGODB_CONNECT_TIMEOUT_MS`, or `MONGODB_SOCKET_TIMEOUT_MS` if Atlas connectivity is slow—the defaults surface a 503 after ~8–20 seconds instead of stalling for minutes.
 
 > **Note:** The repo ships with `.npmrc` files setting `rollup_skip_nodejs_native_build=true` (root and `frontend/`), and the frontend build script reinforces `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1`, so rollup always falls back to its portable build. Keep these in place for Vercel.
 
