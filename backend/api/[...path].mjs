@@ -10,14 +10,6 @@ async function getApp() {
 }
 
 export default async function handler(req, res) {
-  const url = req.url || "";
-  if (!url.startsWith("/api")) {
-    res.statusCode = 404;
-    res.setHeader("content-type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ detail: "Not found" }));
-    return;
-  }
-
   const app = await getApp();
   return app(req, res);
 }
