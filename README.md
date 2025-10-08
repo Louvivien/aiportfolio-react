@@ -86,19 +86,19 @@ Create two Vercel projects—one for the React bundle, one for the API.
 ### Frontend project (Vite)
 
 1. In Vercel choose **Add New… → Project**, select this repo, and set **Root Directory** to `frontend`.
-2. Leave the install command as `npm install`, build command as `npm run build`, and output directory as `dist`.
+2. The included `frontend/vercel.json` preconfigures `npm install`, `npm run build`, and `dist` as the output—accept the suggested values.
 3. Under **Environment Variables** add `VITE_API_BASE=https://YOUR-BACKEND-URL.vercel.app/api` (replace once the backend is live).
 4. Deploy; the `.npmrc` inside `frontend/` keeps rollup on the portable build that works in Vercel.
 
 ### Backend project (Express on serverless functions)
 
 1. Create another Vercel project from the same repo but set **Root Directory** to `backend`.
-2. You do not need a build command; Vercel deploys the handlers in `backend/api/[...path].mjs` automatically.
+2. Skip the build command (leave it blank). Vercel deploys the handlers in `backend/api/[...path].mjs` automatically after `npm install`.
 3. Add the MongoDB Atlas integration (or set env vars manually). At minimum provide `MONGODB_URI`; Atlas also supplies `MONGODB_DATABASE`.
 4. If the frontend uses the deployed backend, remember to copy the production URL into the frontend project’s `VITE_API_BASE`.
 5. For local parity run `cp backend/.env.example backend/.env` and reuse the same connection string.
 
-> **Note:** The repo ships with `.npmrc` setting `rollup_skip_nodejs_native_build=true` and the build script reinforces `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1`, so rollup always falls back to its portable build. Keep both in place for Vercel.
+> **Note:** The repo ships with `.npmrc` files setting `rollup_skip_nodejs_native_build=true` (root and `frontend/`), and the frontend build script reinforces `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1`, so rollup always falls back to its portable build. Keep these in place for Vercel.
 
 ### Local parity after the changes
 
