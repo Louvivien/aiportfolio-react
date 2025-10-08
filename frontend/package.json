@@ -29,5 +29,8 @@
     "eslint-plugin-react-refresh": "^0.4.5",
     "typescript": "^5.4.5",
     "vite": "^5.2.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.52.4"
   }
 }
