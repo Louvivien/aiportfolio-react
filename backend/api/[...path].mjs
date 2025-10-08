@@ -1,4 +1,4 @@
-import { createApp } from "../backend/src/app.js";
+import { createApp } from "../src/app.js";
 
 let cachedApp;
 

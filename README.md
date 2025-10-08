@@ -81,21 +81,24 @@ npm run preview            # optional local preview of the bundle
 
 ## Deploying to Vercel
 
-This repo includes an `api/[...path].mjs` catch-all that wraps the Express app for serverless usage and a `vercel.json` file so the project builds with no dashboard tweaks.
+Create two Vercel projects—one for the React bundle, one for the API.
 
-1. Connect the Git repository to Vercel (or run `vercel` from the repo root).
-2. Accept the defaults—`vercel.json` already pins the install/build commands and output directory.
-3. Deploy. Vercel serves the static bundle from `frontend/dist` and routes `/api/*` to the serverless Express handler.
+### Frontend project (Vite)
 
-> **Note:** The build uses `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1` so rollup ships a portable binary—do not remove this environment variable.
+1. In Vercel choose **Add New… → Project**, select this repo, and set **Root Directory** to `frontend`.
+2. Leave the install command as `npm install`, build command as `npm run build`, and output directory as `dist`.
+3. Under **Environment Variables** add `VITE_API_BASE=https://YOUR-BACKEND-URL.vercel.app/api` (replace once the backend is live).
+4. Deploy; the `.npmrc` inside `frontend/` keeps rollup on the portable build that works in Vercel.
 
-### MongoDB Atlas integration on Vercel
+### Backend project (Express on serverless functions)
 
-1. In the Vercel dashboard open **Integrations → Marketplace** and add **MongoDB Atlas** to your team.
-2. Select the project, choose “Link an existing deployment” (or create a new Atlas cluster), and Grant access.
-3. Pick the cluster/database you want Vercel to manage and confirm the connection. Vercel adds `MONGODB_URI` and `MONGODB_DATABASE` secrets to the project automatically.
-4. No extra configuration is required in code—the backend reads those variables via `backend/src/config.js`.
-5. For local parity run `cp backend/.env.example backend/.env` and paste the same `MONGODB_URI`. The optional `MONGODB_DB` override falls back to the Atlas database name if omitted.
+1. Create another Vercel project from the same repo but set **Root Directory** to `backend`.
+2. You do not need a build command; Vercel deploys the handlers in `backend/api/[...path].mjs` automatically.
+3. Add the MongoDB Atlas integration (or set env vars manually). At minimum provide `MONGODB_URI`; Atlas also supplies `MONGODB_DATABASE`.
+4. If the frontend uses the deployed backend, remember to copy the production URL into the frontend project’s `VITE_API_BASE`.
+5. For local parity run `cp backend/.env.example backend/.env` and reuse the same connection string.
+
+> **Note:** The repo ships with `.npmrc` setting `rollup_skip_nodejs_native_build=true` and the build script reinforces `ROLLUP_SKIP_NODEJS_NATIVE_BUILD=1`, so rollup always falls back to its portable build. Keep both in place for Vercel.
 
 ### Local parity after the changes
 
