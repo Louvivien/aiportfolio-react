@@ -256,8 +256,6 @@ function App() {
 
   const portfolioView = useMemo(() => buildPortfolioView(filteredPositions), [filteredPositions]);
 
-  const isDeleting = (id: string | undefined) => deletingId === id;
-
   return (
     <div className="app-shell">
       <header style={{ marginBottom: 24 }}>

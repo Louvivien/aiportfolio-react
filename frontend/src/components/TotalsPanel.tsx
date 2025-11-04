@@ -20,7 +20,7 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
       </div>
       <div className="grid two">
         <div className="metric-card">
-          <h4>Total Invest (All)</h4>
+          <h4>Total Invest (Open)</h4>
           <p>{formatCurrency(totals.totalInvestAll, currency)}</p>
         </div>
         <div className="metric-card">
@@ -28,8 +28,16 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
           <p>{formatCurrency(totals.totalMarketValueOpen, currency)}</p>
         </div>
         <div className="metric-card">
-          <h4>P/L (Open vs Invest All)</h4>
-          <p>{formatCurrency(totals.plOpenVsInvestAll, currency)}</p>
+          <h4>Total Invest (Closed)</h4>
+          <p>{formatCurrency(totals.totalInvestClosed, currency)}</p>
+        </div>
+        <div className="metric-card">
+          <h4>Realized P/L (Closed)</h4>
+          <p>{formatCurrency(totals.realizedPlClosed, currency)}</p>
+        </div>
+        <div className="metric-card">
+          <h4>P/L (Global vs Invest All)</h4>
+          <p>{formatCurrency(totals.plVsInvestAll, currency)}</p>
         </div>
         <div className="metric-card">
           <h4>P/L % (vs Invest All)</h4>

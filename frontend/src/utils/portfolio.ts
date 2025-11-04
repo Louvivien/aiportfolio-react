@@ -23,13 +23,15 @@ export interface RangeStats {
 
 export interface PortfolioTotals {
   totalInvestAll: number;
+  totalInvestClosed: number;
   totalMarketValueOpen: number;
-  plOpenVsInvestAll: number;
+  plVsInvestAll: number;
   plPctVsInvestAll: number;
   intradayAbsSum: number;
   portfolioIntradayPct: number;
   tenDayAbsolute: number;
   tenDayPctTotal: number;
+  realizedPlClosed: number;
 }
 
 const toNumber = (value: unknown, fallback = 0): number => {
@@ -64,10 +66,12 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
   const intradayPercents: number[] = [];
   const tenDayPercents: number[] = [];
 
-  let totalInvestAll = 0;
   let totalMarketValueOpen = 0;
   let intradayAbsSum = 0;
   let totalMarketValueOpen10d = 0;
+  let totalInvestOpen = 0;
+  let totalInvestClosed = 0;
+  let realizedPlClosed = 0;
 
   for (const position of positions) {
     const isClosed = Boolean(position.is_closed);
@@ -155,9 +159,9 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
     });
 
     pnlValues.push(pnlValue);
-    totalInvestAll += invested;
 
     if (!isClosed) {
+      totalInvestOpen += invested;
       totalMarketValueOpen += quantity * currentPrice;
       if (position.intraday_change !== null && position.intraday_change !== undefined) {
         const change = toNumber(position.intraday_change, NaN);
@@ -168,6 +172,9 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
       if (price10dValue !== null && !Number.isNaN(price10dValue)) {
         totalMarketValueOpen10d += quantity * price10dValue;
       }
+    } else {
+      totalInvestClosed += invested;
+      realizedPlClosed += pnlValue;
     }
   }
 
@@ -187,8 +194,10 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
     max: tenDayPercents.length ? Math.max(...tenDayPercents) : 0,
   };
 
-  const plOpenVsInvestAll = totalMarketValueOpen - totalInvestAll;
-  const plPctVsInvestAll = totalInvestAll ? (plOpenVsInvestAll / totalInvestAll) * 100 : 0;
+  const plOpen = totalMarketValueOpen - totalInvestOpen;
+  const plVsInvestAll = plOpen + realizedPlClosed;
+  const totalInvestAll = totalInvestOpen;
+  const plPctVsInvestAll = totalInvestAll ? (plVsInvestAll / totalInvestAll) * 100 : 0;
   const portfolioIntradayPct = totalMarketValueOpen
     ? (intradayAbsSum / totalMarketValueOpen) * 100
     : 0;
@@ -203,13 +212,15 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
     ranges: { pnlRange, intradayRange, tenDayRange },
     totals: {
       totalInvestAll,
+      totalInvestClosed,
       totalMarketValueOpen,
-      plOpenVsInvestAll,
+      plVsInvestAll,
       plPctVsInvestAll,
       intradayAbsSum,
       portfolioIntradayPct,
       tenDayAbsolute,
       tenDayPctTotal,
+      realizedPlClosed,
     },
   };
 }
