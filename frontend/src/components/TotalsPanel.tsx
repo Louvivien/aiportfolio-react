@@ -29,12 +29,12 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
             <p>{formatCurrency(totals.totalMarketValueOpen, currency)}</p>
           </div>
           <div className="metric-card">
-            <h4>P/L (Open)</h4>
-            <p>{formatCurrency(totals.plOpen, currency)}</p>
+            <h4>Global P/L (Incl. Closed)</h4>
+            <p>{formatCurrency(totals.plVsInvestAll, currency)}</p>
           </div>
           <div className="metric-card">
-            <h4>P/L % (Open)</h4>
-            <p>{formatSignedPercent(totals.plOpenPct)}</p>
+            <h4>Global P/L %</h4>
+            <p>{formatSignedPercent(totals.plPctVsInvestAll)}</p>
           </div>
         </div>
         <div className="totals-secondary">
@@ -42,18 +42,6 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
             <div className="muted-label">Realized P/L (Closed)</div>
             <div className="muted-value">
               {formatCurrency(totals.realizedPlClosed, currency)}
-            </div>
-          </div>
-          <div className="metric-card muted-block">
-            <div className="muted-label">Global P/L (Incl. Closed)</div>
-            <div className="muted-value">
-              {formatCurrency(totals.plVsInvestAll, currency)}
-            </div>
-          </div>
-          <div className="metric-card muted-block">
-            <div className="muted-label">Global P/L %</div>
-            <div className="muted-value">
-              {formatSignedPercent(totals.plPctVsInvestAll)}
             </div>
           </div>
         </div>
