@@ -39,12 +39,6 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
         </div>
         <div className="totals-secondary">
           <div className="metric-card muted-block">
-            <div className="muted-label">Total Invest (Closed)</div>
-            <div className="muted-value">
-              {formatCurrency(totals.totalInvestClosed, currency)}
-            </div>
-          </div>
-          <div className="metric-card muted-block">
             <div className="muted-label">Realized P/L (Closed)</div>
             <div className="muted-value">
               {formatCurrency(totals.realizedPlClosed, currency)}
