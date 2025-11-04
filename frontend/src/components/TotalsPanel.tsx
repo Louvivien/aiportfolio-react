@@ -18,30 +18,38 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
       <div className="section-header">
         <h2>Totals</h2>
       </div>
-      <div className="grid two">
-        <div className="metric-card">
-          <h4>Total Invest (Open)</h4>
-          <p>{formatCurrency(totals.totalInvestAll, currency)}</p>
+      <div className="totals-layout">
+        <div className="totals-primary">
+          <div className="metric-card">
+            <h4>Total Invest (Open)</h4>
+            <p>{formatCurrency(totals.totalInvestAll, currency)}</p>
+          </div>
+          <div className="metric-card">
+            <h4>Total Market Value (Open)</h4>
+            <p>{formatCurrency(totals.totalMarketValueOpen, currency)}</p>
+          </div>
+          <div className="metric-card">
+            <h4>P/L (Global vs Invest All)</h4>
+            <p>{formatCurrency(totals.plVsInvestAll, currency)}</p>
+          </div>
+          <div className="metric-card">
+            <h4>P/L % (vs Invest All)</h4>
+            <p>{formatSignedPercent(totals.plPctVsInvestAll)}</p>
+          </div>
         </div>
-        <div className="metric-card">
-          <h4>Total Market Value (Open)</h4>
-          <p>{formatCurrency(totals.totalMarketValueOpen, currency)}</p>
-        </div>
-        <div className="metric-card">
-          <h4>Total Invest (Closed)</h4>
-          <p>{formatCurrency(totals.totalInvestClosed, currency)}</p>
-        </div>
-        <div className="metric-card">
-          <h4>Realized P/L (Closed)</h4>
-          <p>{formatCurrency(totals.realizedPlClosed, currency)}</p>
-        </div>
-        <div className="metric-card">
-          <h4>P/L (Global vs Invest All)</h4>
-          <p>{formatCurrency(totals.plVsInvestAll, currency)}</p>
-        </div>
-        <div className="metric-card">
-          <h4>P/L % (vs Invest All)</h4>
-          <p>{formatSignedPercent(totals.plPctVsInvestAll)}</p>
+        <div className="totals-secondary">
+          <div className="metric-card muted-block">
+            <div className="muted-label">Total Invest (Closed)</div>
+            <div className="muted-value">
+              {formatCurrency(totals.totalInvestClosed, currency)}
+            </div>
+          </div>
+          <div className="metric-card muted-block">
+            <div className="muted-label">Realized P/L (Closed)</div>
+            <div className="muted-value">
+              {formatCurrency(totals.realizedPlClosed, currency)}
+            </div>
+          </div>
         </div>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 18 }}>
