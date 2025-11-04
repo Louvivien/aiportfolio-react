@@ -150,7 +150,7 @@ export function EditPositionModal({
                 id="edit-quantity"
                 type="number"
                 min="0"
-                step="0.01"
+                step="any"
                 value={state.quantity}
                 onChange={(event) => updateState("quantity", event.target.value)}
                 disabled={loading}

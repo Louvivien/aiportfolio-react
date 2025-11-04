@@ -1,7 +1,7 @@
 import classNames from "classnames";
 import type { Position } from "../api/types";
 import { colorFromScale, colorFromScaleIntraday } from "../utils/colors";
-import { formatCurrency, formatNumber, formatSignedPercent } from "../utils/format";
+import { formatCurrency, formatNumber, formatQuantity, formatSignedPercent } from "../utils/format";
 import type { PositionRow } from "../utils/portfolio";
 
 export type SortableColumn =
@@ -200,7 +200,7 @@ export function PositionsTable({
                     {closed && <span className="badge closed">Closed</span>}
                   </td>
                   <td>{position.long_name || "—"}</td>
-                  <td>{formatNumber(row.quantity)}</td>
+                  <td>{formatQuantity(row.quantity)}</td>
                   <td>{formatCurrency(row.cost, currency)}</td>
                   <td>{formatCurrency(row.effectivePrice, currency)}</td>
                   <td>{formatCurrency(row.invested, currency)}</td>

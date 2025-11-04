@@ -110,7 +110,7 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
                 id="add-quantity"
                 type="number"
                 min="0"
-                step="0.01"
+                step="any"
                 value={state.quantity}
                 onChange={(event) => updateField("quantity", event.target.value)}
                 disabled={loading}

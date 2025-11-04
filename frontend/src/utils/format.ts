@@ -23,6 +23,20 @@ export function formatNumber(value: number | null | undefined, digits = 2): stri
   });
 }
 
+export function formatQuantity(
+  value: number | null | undefined,
+  maxFractionDigits = 4,
+): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+  const hasFraction = Math.abs(value % 1) > Number.EPSILON;
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: hasFraction ? 1 : 0,
+    maximumFractionDigits: maxFractionDigits,
+  });
+}
+
 export function formatCurrency(
   value: number | null | undefined,
   currency: string | null | undefined,
