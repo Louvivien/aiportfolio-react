@@ -25,6 +25,8 @@ export interface PortfolioTotals {
   totalInvestAll: number;
   totalInvestClosed: number;
   totalMarketValueOpen: number;
+  plOpen: number;
+  plOpenPct: number;
   plVsInvestAll: number;
   plPctVsInvestAll: number;
   intradayAbsSum: number;
@@ -194,9 +196,10 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
     max: tenDayPercents.length ? Math.max(...tenDayPercents) : 0,
   };
 
-  const plOpen = totalMarketValueOpen - totalInvestOpen;
-  const plVsInvestAll = plOpen + realizedPlClosed;
   const totalInvestAll = totalInvestOpen;
+  const plOpen = totalMarketValueOpen - totalInvestOpen;
+  const plOpenPct = totalInvestOpen ? (plOpen / totalInvestOpen) * 100 : 0;
+  const plVsInvestAll = plOpen + realizedPlClosed;
   const plPctVsInvestAll = totalInvestAll ? (plVsInvestAll / totalInvestAll) * 100 : 0;
   const portfolioIntradayPct = totalMarketValueOpen
     ? (intradayAbsSum / totalMarketValueOpen) * 100
@@ -214,6 +217,8 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
       totalInvestAll,
       totalInvestClosed,
       totalMarketValueOpen,
+      plOpen,
+      plOpenPct,
       plVsInvestAll,
       plPctVsInvestAll,
       intradayAbsSum,
