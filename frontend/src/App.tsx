@@ -5,6 +5,7 @@ import PositionsTable, { SortConfig, SortableColumn } from "./components/Positio
 import TagSummary from "./components/TagSummary";
 import TimeseriesPanel from "./components/TimeseriesPanel";
 import TotalsPanel from "./components/TotalsPanel";
+import PositionsPie from "./components/PositionsPie";
 import {
   createPosition,
   deletePosition,
@@ -322,6 +323,8 @@ function App() {
           deletingId={deletingId}
         />
       )}
+
+      <PositionsPie rows={portfolioView.rows} />
 
       {editing && (
         <EditPositionModal
