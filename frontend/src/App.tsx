@@ -260,7 +260,11 @@ function App() {
     return working;
   }, [positions, filterTag, showClosed]);
 
-  const portfolioView = useMemo(() => buildPortfolioView(filteredPositions), [filteredPositions]);
+  const portfolioView = useMemo(
+    () => buildPortfolioView(filteredPositions),
+    [filteredPositions],
+  );
+  const portfolioTotals = useMemo(() => buildPortfolioView(positions), [positions]);
 
   return (
     <div className="app-shell">
@@ -307,7 +311,7 @@ function App() {
         onOpenTimeseries={openTimeseries}
       />
 
-      <TotalsPanel totals={portfolioView.totals} />
+      <TotalsPanel totals={portfolioTotals.totals} />
 
       {loading ? (
         <div className="card">
