@@ -25,7 +25,7 @@ import type {
 } from "./api/types";
 import { buildPortfolioView } from "./utils/portfolio";
 
-const defaultSortConfig: SortConfig = { column: null, direction: "asc" };
+const defaultSortConfig: SortConfig = { column: "value", direction: "desc" };
 
 const extractErrorMessage = (error: unknown): string => {
   if (typeof error === "string") {
@@ -63,6 +63,7 @@ function App() {
 
   const [filterTag, setFilterTag] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>(defaultSortConfig);
+  const [showClosed, setShowClosed] = useState(false);
 
   const [editing, setEditing] = useState<Position | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -249,11 +250,15 @@ function App() {
   const tagSuggestions = useMemo(() => tags.map((tag) => tag.name).filter(Boolean), [tags]);
 
   const filteredPositions = useMemo(() => {
-    if (!filterTag) {
-      return positions;
+    let working = positions;
+    if (filterTag) {
+      working = working.filter((position) => (position.tags || []).includes(filterTag));
     }
-    return positions.filter((position) => (position.tags || []).includes(filterTag));
-  }, [positions, filterTag]);
+    if (!showClosed) {
+      working = working.filter((position) => !position.is_closed);
+    }
+    return working;
+  }, [positions, filterTag, showClosed]);
 
   const portfolioView = useMemo(() => buildPortfolioView(filteredPositions), [filteredPositions]);
 
@@ -317,6 +322,8 @@ function App() {
           sortConfig={sortConfig}
           onChangeSort={handleSortChange}
           onResetSort={handleResetSort}
+          showClosed={showClosed}
+          onToggleShowClosed={setShowClosed}
           onEdit={handleEdit}
           onDelete={handleDelete}
           mutating={mutating}

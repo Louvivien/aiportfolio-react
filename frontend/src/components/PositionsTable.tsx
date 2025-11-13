@@ -39,6 +39,8 @@ interface PositionsTableProps {
   sortConfig: SortConfig;
   onChangeSort: (column: SortableColumn) => void;
   onResetSort: () => void;
+  showClosed: boolean;
+  onToggleShowClosed: (value: boolean) => void;
   onEdit: (position: Position) => void;
   onDelete: (position: Position) => void;
   mutating?: boolean;
@@ -101,6 +103,8 @@ export function PositionsTable({
   sortConfig,
   onChangeSort,
   onResetSort,
+  showClosed,
+  onToggleShowClosed,
   onEdit,
   onDelete,
   mutating = false,
@@ -157,6 +161,17 @@ export function PositionsTable({
               Reset order
             </button>
           )}
+          <label
+            className="checkbox-row"
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}
+          >
+            <input
+              type="checkbox"
+              checked={showClosed}
+              onChange={(event) => onToggleShowClosed(event.target.checked)}
+            />
+            Show closed positions
+          </label>
         </div>
       </div>
       <div style={{ overflowX: "auto" }}>
