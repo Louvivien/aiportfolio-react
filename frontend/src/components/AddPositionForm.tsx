@@ -16,6 +16,7 @@ const INITIAL_STATE = {
   closingPrice: "",
   isClosed: false,
   tags: [] as string[],
+  purchaseDate: "",
 };
 
 type FormState = typeof INITIAL_STATE;
@@ -24,6 +25,7 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
   const [state, setState] = useState<FormState>(INITIAL_STATE);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
 
   const updateField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setState((prev) => ({ ...prev, [key]: value }));
@@ -72,6 +74,7 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
       tags: state.tags,
       is_closed: state.isClosed,
       closing_price: closingValue,
+      purchase_date: state.purchaseDate || undefined,
     };
 
     await onCreate(payload);
@@ -125,6 +128,17 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
                 step="0.01"
                 value={state.costPrice}
                 onChange={(event) => updateField("costPrice", event.target.value)}
+                disabled={loading}
+              />
+            </div>
+            <div className="input-row">
+              <label htmlFor="add-purchase-date">Purchase Date</label>
+              <input
+                id="add-purchase-date"
+                type="date"
+                value={state.purchaseDate}
+                max={today}
+                onChange={(event) => updateField("purchaseDate", event.target.value)}
                 disabled={loading}
               />
             </div>

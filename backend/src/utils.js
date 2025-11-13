@@ -57,3 +57,39 @@ export function uniqueUppercaseSymbols(documents) {
 export function ensureArray(value) {
   return Array.isArray(value) ? value : [];
 }
+
+export function parseDateInput(value) {
+  if (!value && value !== 0) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const date = new Date(`${trimmed}T00:00:00.000Z`);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+export function toIsoDateTime(value) {
+  const date = parseDateInput(value);
+  return date ? date.toISOString() : null;
+}
+
+export function toIsoDateOnly(value) {
+  const iso = toIsoDateTime(value);
+  return iso ? iso.slice(0, 10) : null;
+}

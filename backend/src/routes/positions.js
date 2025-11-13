@@ -6,6 +6,9 @@ import {
   asBoolean,
   ensureArray,
   normaliseNumber,
+  parseDateInput,
+  toIsoDateOnly,
+  toIsoDateTime,
   toObjectId,
   uniqueUppercaseSymbols,
   withStringId,
@@ -67,6 +70,9 @@ function computeEffectivePrice(doc, priceEntry) {
 function enrichDocument(doc, priceEntry, tagNames) {
   const enriched = {
     ...doc,
+    purchase_date: toIsoDateTime(doc?.purchase_date),
+    created_at: toIsoDateTime(doc?.created_at),
+    updated_at: toIsoDateTime(doc?.updated_at),
     current_price: computeEffectivePrice(doc, priceEntry),
     long_name: priceEntry?.long_name ?? null,
     intraday_change: priceEntry?.change ?? null,
@@ -119,9 +125,9 @@ router.post("/", async (req, res, next) => {
   try {
     const { positions } = getCollections();
     const body = req.body || {};
-
     const tagIds = await upsertTagsReturnIds(body.tags || []);
     const now = new Date();
+    const purchaseDate = parseDateInput(body.purchase_date);
     const doc = {
       symbol: String(body.symbol || "").toUpperCase(),
       quantity: normaliseNumber(body.quantity, 0),
@@ -132,6 +138,7 @@ router.post("/", async (req, res, next) => {
         body.closing_price === null || body.closing_price === undefined
           ? null
           : normaliseNumber(body.closing_price),
+      purchase_date: purchaseDate ?? now,
       created_at: now,
       updated_at: now,
     };
@@ -186,6 +193,10 @@ router.put("/:id", async (req, res, next) => {
     }
     if (body.tags !== undefined) {
       updates.tags = await upsertTagsReturnIds(body.tags || []);
+    }
+    if (body.purchase_date !== undefined) {
+      const parsedDate = parseDateInput(body.purchase_date);
+      updates.purchase_date = parsedDate ?? null;
     }
 
     if (Object.keys(updates).length) {
@@ -434,6 +445,8 @@ router.get("/tags/timeseries", async (req, res, next) => {
       const history = historyMap[sym] ?? [];
       const qty = normaliseNumber(doc.quantity);
       const cost = normaliseNumber(doc.cost_price);
+      const purchaseDateCutoff =
+        toIsoDateOnly(doc.purchase_date) ?? toIsoDateOnly(doc.created_at);
 
       if (!history.length || qty === 0) {
         return;
@@ -446,6 +459,9 @@ router.get("/tags/timeseries", async (req, res, next) => {
       history.forEach((point) => {
         const { date, close } = point;
         if (!date || close === null || close === undefined) {
+          return;
+        }
+        if (purchaseDateCutoff && date < purchaseDateCutoff) {
           return;
         }
         const mv = close * qty;

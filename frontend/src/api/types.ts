@@ -19,6 +19,9 @@ export interface Position {
   tags: string[];
   is_closed?: boolean;
   closing_price?: number | null;
+  purchase_date?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface PortfolioSummary {
@@ -53,6 +56,7 @@ export interface CreatePositionPayload {
   tags: string[];
   is_closed: boolean;
   closing_price: number | null;
+  purchase_date?: string | null;
 }
 
 export interface UpdatePositionPayload {
@@ -62,4 +66,5 @@ export interface UpdatePositionPayload {
   tags?: string[];
   is_closed?: boolean;
   closing_price?: number | null;
+  purchase_date?: string | null;
 }

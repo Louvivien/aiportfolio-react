@@ -1,12 +1,19 @@
 import classNames from "classnames";
 import type { Position } from "../api/types";
 import { colorFromScale, colorFromScaleIntraday } from "../utils/colors";
-import { formatCurrency, formatNumber, formatQuantity, formatSignedPercent } from "../utils/format";
+import {
+  formatCurrency,
+  formatDate,
+  formatNumber,
+  formatQuantity,
+  formatSignedPercent,
+} from "../utils/format";
 import type { PositionRow } from "../utils/portfolio";
 
 export type SortableColumn =
   | "symbol"
   | "name"
+  | "purchaseDate"
   | "quantity"
   | "cost"
   | "current"
@@ -41,6 +48,7 @@ interface PositionsTableProps {
 const columnMeta: { key: SortableColumn; label: string }[] = [
   { key: "symbol", label: "Symbol" },
   { key: "name", label: "Name" },
+  { key: "purchaseDate", label: "Bought" },
   { key: "quantity", label: "Qty" },
   { key: "cost", label: "Cost" },
   { key: "current", label: "Current" },
@@ -57,6 +65,14 @@ const columnMeta: { key: SortableColumn; label: string }[] = [
 const comparatorMap: Record<SortableColumn, (row: PositionRow) => unknown> = {
   symbol: (row) => row.position.symbol.toUpperCase(),
   name: (row) => (row.position.long_name || "").toUpperCase(),
+  purchaseDate: (row) => {
+    const value = row.position.purchase_date ?? row.position.created_at ?? null;
+    if (!value) {
+      return null;
+    }
+    const time = new Date(value).getTime();
+    return Number.isNaN(time) ? null : time;
+  },
   quantity: (row) => row.quantity,
   cost: (row) => row.cost,
   current: (row) => row.effectivePrice,
@@ -198,9 +214,10 @@ export function PositionsTable({
                       {position.symbol}
                     </a>
                     {closed && <span className="badge closed">Closed</span>}
-                  </td>
-                  <td>{position.long_name || "—"}</td>
-                  <td>{formatQuantity(row.quantity)}</td>
+              </td>
+              <td>{position.long_name || "—"}</td>
+              <td>{formatDate(position.purchase_date ?? position.created_at ?? null)}</td>
+              <td>{formatQuantity(row.quantity)}</td>
                   <td>{formatCurrency(row.cost, currency)}</td>
                   <td>{formatCurrency(row.effectivePrice, currency)}</td>
                   <td>{formatCurrency(row.invested, currency)}</td>

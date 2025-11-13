@@ -72,3 +72,28 @@ export function parsePrice(input: string): number | null {
   const value = Number(normalized);
   return Number.isFinite(value) ? value : null;
 }
+
+export function formatDate(
+  value: string | Date | null | undefined,
+  options: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric" },
+): string {
+  if (!value) {
+    return "—";
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+  return date.toLocaleDateString(undefined, options);
+}
+
+export function toDateInputValue(value: string | Date | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString().slice(0, 10);
+}

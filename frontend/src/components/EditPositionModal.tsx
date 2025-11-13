@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { Position, UpdatePositionPayload } from "../api/types";
-import { parsePrice } from "../utils/format";
+import { parsePrice, toDateInputValue } from "../utils/format";
 import { TagInput } from "./TagInput";
 
 interface EditPositionModalProps {
@@ -18,6 +18,7 @@ interface EditState {
   isClosed: boolean;
   closingPrice: string;
   tags: string[];
+  purchaseDate: string;
 }
 
 const EMPTY_STATE: EditState = {
@@ -27,6 +28,7 @@ const EMPTY_STATE: EditState = {
   isClosed: false,
   closingPrice: "",
   tags: [],
+  purchaseDate: "",
 };
 
 export function EditPositionModal({
@@ -38,6 +40,7 @@ export function EditPositionModal({
 }: EditPositionModalProps) {
   const [state, setState] = useState<EditState>(EMPTY_STATE);
   const [error, setError] = useState<string | null>(null);
+  const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
     if (!position) {
@@ -54,6 +57,7 @@ export function EditPositionModal({
           ? ""
           : String(position.closing_price),
       tags: Array.isArray(position.tags) ? position.tags : [],
+      purchaseDate: toDateInputValue(position.purchase_date ?? position.created_at ?? null),
     });
   }, [position]);
 
@@ -109,6 +113,7 @@ export function EditPositionModal({
       is_closed: state.isClosed,
       closing_price: closingValue,
       tags: state.tags,
+      purchase_date: state.purchaseDate ? state.purchaseDate : null,
     };
 
     try {
@@ -165,6 +170,17 @@ export function EditPositionModal({
                 step="0.01"
                 value={state.costPrice}
                 onChange={(event) => updateState("costPrice", event.target.value)}
+                disabled={loading}
+              />
+            </div>
+            <div className="input-row">
+              <label htmlFor="edit-purchase-date">Purchase Date</label>
+              <input
+                id="edit-purchase-date"
+                type="date"
+                value={state.purchaseDate}
+                max={today}
+                onChange={(event) => updateState("purchaseDate", event.target.value)}
                 disabled={loading}
               />
             </div>

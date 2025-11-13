@@ -20,10 +20,32 @@ const client = axios.create({
 const unwrap = <T>(promise: Promise<{ data: T }>): Promise<T> =>
   promise.then((response) => response.data);
 
+const normalizeDateValue = (value: unknown): string | null => {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+  return null;
+};
+
 const normalizePosition = (raw: Position): Position => {
   const id = raw.id ?? raw._id ?? raw.symbol;
   const tags = Array.isArray(raw.tags) ? raw.tags : [];
-  return { ...raw, id, tags };
+  const purchase = normalizeDateValue(raw.purchase_date) ?? normalizeDateValue(raw.created_at);
+  return {
+    ...raw,
+    id,
+    tags,
+    purchase_date: purchase,
+    created_at: normalizeDateValue(raw.created_at),
+    updated_at: normalizeDateValue(raw.updated_at),
+  };
 };
 
 export function fetchPositions(): Promise<Position[]> {
