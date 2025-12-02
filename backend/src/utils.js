@@ -1,5 +1,27 @@
 import { ObjectId } from "mongodb";
 
+const FORUM_OVERRIDES = {
+  NVDA: "https://www.boursorama.com/bourse/forum/NVDA/",
+  SAF: "https://www.boursorama.com/bourse/forum/1rPSAF/",
+  PARRO: "https://www.boursorama.com/bourse/forum/1rPPARRO/",
+  HO: "https://www.boursorama.com/bourse/forum/1rPHO/",
+  AM: "https://www.boursorama.com/bourse/forum/1rPAM/",
+  EXA: "https://www.boursorama.com/bourse/forum/1rPEXA/",
+  LBIRD: "https://www.boursorama.com/bourse/forum/1rPLBIRD/",
+  RHM: "https://www.boursorama.com/bourse/forum/1zRHM/",
+};
+
+const DEFAULT_FORUM_BASE = "https://www.boursorama.com/bourse/forum";
+
+const cleanForumSymbol = (value) => {
+  if (!value) {
+    return "";
+  }
+  const upper = String(value).toUpperCase();
+  const base = upper.split(/[.\-\s]/)[0];
+  return base.replace(/[^A-Z0-9]/g, "");
+};
+
 export function toObjectId(value) {
   if (!value) {
     return null;
@@ -92,4 +114,35 @@ export function toIsoDateTime(value) {
 export function toIsoDateOnly(value) {
   const iso = toIsoDateTime(value);
   return iso ? iso.slice(0, 10) : null;
+}
+
+export function guessBoursoramaForumUrl(symbol) {
+  if (!symbol) {
+    return null;
+  }
+  const cleaned = cleanForumSymbol(symbol);
+  if (!cleaned) {
+    return null;
+  }
+  if (FORUM_OVERRIDES[cleaned]) {
+    return FORUM_OVERRIDES[cleaned];
+  }
+  return `${DEFAULT_FORUM_BASE}/1rP${cleaned}/`;
+}
+
+export function normalizeForumUrl(value, symbol = null) {
+  if (!value) {
+    return guessBoursoramaForumUrl(symbol);
+  }
+  let out = String(value).trim();
+  if (!out) {
+    return guessBoursoramaForumUrl(symbol);
+  }
+  if (!/^https?:\/\//i.test(out)) {
+    out = `https://${out.replace(/^\/+/, "")}`;
+  }
+  if (!out.endsWith("/")) {
+    out = `${out}/`;
+  }
+  return out;
 }

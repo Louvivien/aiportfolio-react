@@ -1,6 +1,7 @@
 import axios from "axios";
 import type {
   CreatePositionPayload,
+  ForumPostsResponse,
   PortfolioSummary,
   Position,
   Tag,
@@ -89,4 +90,8 @@ export function deletePosition(id: string): Promise<{ ok: boolean }> {
   return unwrap(client.delete<{ ok: boolean }>(`/positions/${id}`));
 }
 
-export type { TagTimeseriesResponse, TimeseriesPoint };
+export function fetchForumPostsForPosition(id: string): Promise<ForumPostsResponse> {
+  return unwrap(client.get<ForumPostsResponse>(`/positions/${id}/forum/posts`));
+}
+
+export type { TagTimeseriesResponse, TimeseriesPoint, ForumPostsResponse };

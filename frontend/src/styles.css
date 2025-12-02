@@ -468,3 +468,96 @@ button {
 .ticker-link:hover {
   text-decoration: underline;
 }
+
+.forum-link-wrapper {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 4px;
+}
+
+.forum-link-label {
+  font-size: 12px;
+}
+
+.forum-popover {
+  position: absolute;
+  top: 125%;
+  left: 0;
+  z-index: 40;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.15);
+  border-radius: 10px;
+  width: 360px;
+  max-width: calc(100vw - 40px);
+  padding: 10px 12px;
+}
+
+@media (max-width: 600px) {
+  .forum-popover {
+    right: 0;
+    left: auto;
+    width: 300px;
+  }
+}
+
+.forum-popover-head,
+.forum-popover-row {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 0.5fr 0.6fr;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.forum-popover-head {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.forum-popover-row + .forum-popover-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.forum-popover-title a {
+  font-weight: 600;
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.forum-popover-title a:hover {
+  text-decoration: underline;
+}
+
+.forum-popover-meta {
+  font-size: 12px;
+  color: #475569;
+}
+
+.forum-popover-last {
+  font-size: 12px;
+  color: #334155;
+}
+
+.forum-popover-number {
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  color: #0f172a;
+}
+
+.forum-popover-status {
+  font-size: 12px;
+  color: #475569;
+}
+
+.forum-popover-status--error {
+  color: #b91c1c;
+}

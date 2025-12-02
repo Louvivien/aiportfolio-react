@@ -1,5 +1,7 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import classNames from "classnames";
-import type { Position } from "../api/types";
+import type { ForumPost, Position } from "../api/types";
+import { fetchForumPostsForPosition } from "../api/client";
 import { colorFromScale, colorFromScaleIntraday } from "../utils/colors";
 import {
   formatCurrency,
@@ -8,7 +10,25 @@ import {
   formatQuantity,
   formatSignedPercent,
 } from "../utils/format";
+import { buildBoursoramaForumUrl } from "../utils/forums";
 import type { PositionRow } from "../utils/portfolio";
+
+type ForumPreviewState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "success"; posts: ForumPost[] };
+
+type ForumPreviewMap = Record<string, ForumPreviewState>;
+
+const describeForumError = (error: unknown): string => {
+  if (typeof error === "string") {
+    return error;
+  }
+  if (error && typeof error === "object" && "message" in error && error.message) {
+    return String(error.message);
+  }
+  return "Impossible de charger les messages.";
+};
 
 export type SortableColumn =
   | "symbol"
@@ -110,6 +130,112 @@ export function PositionsTable({
   mutating = false,
   deletingId = null,
 }: PositionsTableProps) {
+  const [forumPreviewMap, setForumPreviewMap] = useState<ForumPreviewMap>({});
+  const [activeForumId, setActiveForumId] = useState<string | null>(null);
+  const hideForumTimerRef = useRef<number | null>(null);
+
+  const clearHideTimer = useCallback(() => {
+    if (hideForumTimerRef.current !== null) {
+      window.clearTimeout(hideForumTimerRef.current);
+      hideForumTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => clearHideTimer();
+  }, [clearHideTimer]);
+
+  const handleForumMouseEnter = useCallback(
+    (position: Position) => {
+      if (!position.id) {
+        return;
+      }
+      const id = position.id;
+      clearHideTimer();
+      setActiveForumId(id);
+      setForumPreviewMap((prev) => {
+        const current = prev[id];
+        if (!current || current.status === "error") {
+          return { ...prev, [id]: { status: "loading" } };
+        }
+        return prev;
+      });
+      const current = forumPreviewMap[id];
+      if (current && current.status !== "error") {
+        return;
+      }
+      fetchForumPostsForPosition(id)
+        .then((data) => {
+          setForumPreviewMap((prev) => ({
+            ...prev,
+            [id]: { status: "success", posts: data.posts || [] },
+          }));
+        })
+        .catch((error) => {
+          setForumPreviewMap((prev) => ({
+            ...prev,
+            [id]: { status: "error", message: describeForumError(error) },
+          }));
+        });
+    },
+    [clearHideTimer, forumPreviewMap],
+  );
+
+  const handleForumMouseLeave = useCallback(
+    (positionId?: string | null) => {
+      const targetId = positionId ?? null;
+      clearHideTimer();
+      hideForumTimerRef.current = window.setTimeout(() => {
+        setActiveForumId((current) => (targetId === null || current === targetId ? null : current));
+        hideForumTimerRef.current = null;
+      }, 200);
+    },
+    [clearHideTimer],
+  );
+
+  const renderForumPreview = (state?: ForumPreviewState) => {
+    if (!state || state.status === "loading") {
+      return <div className="forum-popover-status">Chargement…</div>;
+    }
+    if (state.status === "error") {
+      return <div className="forum-popover-status forum-popover-status--error">{state.message}</div>;
+    }
+    if (!state.posts.length) {
+      return <div className="forum-popover-status">Aucune discussion récente.</div>;
+    }
+    return (
+      <>
+        <div className="forum-popover-head">
+          <span>Sujet</span>
+          <span>Dernière réponse</span>
+          <span>J'aime</span>
+          <span>Messages</span>
+        </div>
+        {state.posts.map((post, index) => {
+          const key = post.topic_url ?? `${post.title}-${index}`;
+          return (
+            <div className="forum-popover-row" key={key}>
+              <div className="forum-popover-col forum-popover-title">
+                {post.topic_url ? (
+                  <a href={post.topic_url} target="_blank" rel="noreferrer">
+                    {post.title}
+                  </a>
+                ) : (
+                  <span>{post.title}</span>
+                )}
+                {post.created_at ? <div className="forum-popover-meta">{post.created_at}</div> : null}
+              </div>
+              <div className="forum-popover-col forum-popover-last">
+                {post.last_reply_at ? <div>{post.last_reply_at}</div> : <div>—</div>}
+              </div>
+              <div className="forum-popover-col forum-popover-number">{post.likes ?? "—"}</div>
+              <div className="forum-popover-col forum-popover-number">{post.messages ?? "—"}</div>
+            </div>
+          );
+        })}
+      </>
+    );
+  };
   const sortedRows = (() => {
     if (!sortConfig.column) {
       return rows;
@@ -199,9 +325,24 @@ export function PositionsTable({
             {sortedRows.map((row) => {
               const { position } = row;
               const currency = position.currency || "EUR";
-              const yahooUrl = `https://finance.yahoo.com/quote/${encodeURIComponent(
-                position.symbol,
-              )}`;
+              const tags = Array.isArray(position.tags) ? position.tags : [];
+              const symbolUpper = position.symbol.toUpperCase();
+              const yahooUrl = `https://finance.yahoo.com/quote/${encodeURIComponent(symbolUpper)}`;
+              const isEtf = tags.some((tag) => tag && tag.toUpperCase() === "ETF");
+              const boursoramaUrl =
+                position.boursorama_forum_url || buildBoursoramaForumUrl(position.symbol);
+              const showForumLink = Boolean(boursoramaUrl) && !isEtf;
+              const forumPreviewState = position.id ? forumPreviewMap[position.id] : undefined;
+              const isForumActive = activeForumId === position.id;
+              const forumHandlers =
+                showForumLink && position.id
+                  ? {
+                      onMouseEnter: () => handleForumMouseEnter(position),
+                      onMouseLeave: () => handleForumMouseLeave(position.id),
+                      onFocus: () => handleForumMouseEnter(position),
+                      onBlur: () => handleForumMouseLeave(position.id),
+                    }
+                  : undefined;
               const closed = row.isClosed;
               const pnlStyle = colorFromScale(
                 row.pnlValue,
@@ -228,8 +369,29 @@ export function PositionsTable({
                     <a href={yahooUrl} target="_blank" rel="noreferrer" className="ticker-link">
                       {position.symbol}
                     </a>
+                    {showForumLink && (
+                      <div className="forum-link-wrapper" {...(forumHandlers ?? {})}>
+                        <a
+                          href={boursoramaUrl!}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="ticker-link forum-link-label"
+                        >
+                          forum
+                        </a>
+                        {isForumActive && position.id && (
+                          <div
+                            className="forum-popover"
+                            onMouseEnter={() => handleForumMouseEnter(position)}
+                            onMouseLeave={() => handleForumMouseLeave(position.id)}
+                          >
+                            {renderForumPreview(forumPreviewState)}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {closed && <span className="badge closed">Closed</span>}
-              </td>
+                  </td>
               <td>{position.long_name || "—"}</td>
               <td>{formatDate(position.purchase_date ?? position.created_at ?? null)}</td>
               <td>{formatQuantity(row.quantity)}</td>

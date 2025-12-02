@@ -2,10 +2,13 @@ import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { getCollections } from "../db.js";
 import { getPrices, getPriceHistory } from "../priceService.js";
+import { fetchForumPosts } from "../forumService.js";
 import {
   asBoolean,
   ensureArray,
+  guessBoursoramaForumUrl,
   normaliseNumber,
+  normalizeForumUrl,
   parseDateInput,
   toIsoDateOnly,
   toIsoDateTime,
@@ -81,6 +84,7 @@ function enrichDocument(doc, priceEntry, tagNames) {
     price_10d: priceEntry?.price_10d ?? null,
     change_10d_pct: priceEntry?.change_10d_pct ?? null,
     tags: tagNames,
+    boursorama_forum_url: doc?.boursorama_forum_url ?? guessBoursoramaForumUrl(doc?.symbol),
   };
   return withStringId(enriched);
 }
@@ -139,6 +143,7 @@ router.post("/", async (req, res, next) => {
           ? null
           : normaliseNumber(body.closing_price),
       purchase_date: purchaseDate ?? now,
+      boursorama_forum_url: normalizeForumUrl(body.boursorama_forum_url, body.symbol),
       created_at: now,
       updated_at: now,
     };
@@ -151,6 +156,29 @@ router.post("/", async (req, res, next) => {
     const tagNames = await getTagNames(inserted?.tags);
     const response = enrichDocument(inserted, priceMap[symbol] ?? {}, tagNames);
     res.status(201).json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/:id/forum/posts", async (req, res, next) => {
+  try {
+    const { positions } = getCollections();
+    const { id } = req.params;
+    const objectId = toObjectId(id);
+    if (!objectId) {
+      return res.status(400).json({ detail: "Invalid position id" });
+    }
+    const doc = await positions.findOne({ _id: objectId });
+    if (!doc) {
+      return res.status(404).json({ detail: "Position not found" });
+    }
+    const forumUrl = normalizeForumUrl(doc.boursorama_forum_url, doc.symbol);
+    if (!forumUrl) {
+      return res.status(404).json({ detail: "Forum details unavailable" });
+    }
+    const posts = await fetchForumPosts(forumUrl, { limit: 3 });
+    res.json({ forum_url: forumUrl, posts });
   } catch (error) {
     next(error);
   }
@@ -197,6 +225,9 @@ router.put("/:id", async (req, res, next) => {
     if (body.purchase_date !== undefined) {
       const parsedDate = parseDateInput(body.purchase_date);
       updates.purchase_date = parsedDate ?? null;
+    }
+    if (body.boursorama_forum_url !== undefined) {
+      updates.boursorama_forum_url = normalizeForumUrl(body.boursorama_forum_url, body.symbol ?? existing.symbol);
     }
 
     if (Object.keys(updates).length) {

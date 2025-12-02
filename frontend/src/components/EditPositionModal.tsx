@@ -19,6 +19,7 @@ interface EditState {
   closingPrice: string;
   tags: string[];
   purchaseDate: string;
+  forumUrl: string;
 }
 
 const EMPTY_STATE: EditState = {
@@ -29,6 +30,7 @@ const EMPTY_STATE: EditState = {
   closingPrice: "",
   tags: [],
   purchaseDate: "",
+  forumUrl: "",
 };
 
 export function EditPositionModal({
@@ -58,6 +60,7 @@ export function EditPositionModal({
           : String(position.closing_price),
       tags: Array.isArray(position.tags) ? position.tags : [],
       purchaseDate: toDateInputValue(position.purchase_date ?? position.created_at ?? null),
+      forumUrl: position.boursorama_forum_url ?? "",
     });
   }, [position]);
 
@@ -106,6 +109,8 @@ export function EditPositionModal({
       closingValue = null;
     }
 
+    const forumUrlInput = state.forumUrl.trim();
+
     const payload: UpdatePositionPayload = {
       symbol: state.symbol.toUpperCase().trim(),
       quantity: qty,
@@ -114,6 +119,7 @@ export function EditPositionModal({
       closing_price: closingValue,
       tags: state.tags,
       purchase_date: state.purchaseDate ? state.purchaseDate : null,
+      boursorama_forum_url: forumUrlInput ? forumUrlInput : null,
     };
 
     try {
@@ -219,6 +225,22 @@ export function EditPositionModal({
               suggestions={tagSuggestions}
               placeholder="Press enter to add tag"
             />
+          </div>
+
+          <div className="input-row">
+            <label htmlFor="edit-boursorama-url">Boursorama forum URL</label>
+            <input
+              id="edit-boursorama-url"
+              type="url"
+              inputMode="url"
+              value={state.forumUrl}
+              onChange={(event) => updateState("forumUrl", event.target.value)}
+              placeholder="https://www.boursorama.com/bourse/forum/..."
+              disabled={loading}
+            />
+            <p className="muted" style={{ marginTop: 4 }}>
+              Leave blank to auto-detect from the symbol.
+            </p>
           </div>
 
           {error && <div className="error-text">{error}</div>}

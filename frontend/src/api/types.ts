@@ -22,6 +22,7 @@ export interface Position {
   purchase_date?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  boursorama_forum_url?: string | null;
 }
 
 export interface PortfolioSummary {
@@ -49,6 +50,24 @@ export interface TagTimeseriesResponse {
   total: TimeseriesPoint[];
 }
 
+export interface ForumPost {
+  title: string;
+  topic_url: string | null;
+  author: string | null;
+  author_profile_url: string | null;
+  created_at: string | null;
+  last_reply_at: string | null;
+  last_reply_author: string | null;
+  last_reply_profile_url: string | null;
+  likes: number | null;
+  messages: number | null;
+}
+
+export interface ForumPostsResponse {
+  forum_url: string | null;
+  posts: ForumPost[];
+}
+
 export interface CreatePositionPayload {
   symbol: string;
   quantity: number;
@@ -57,6 +76,7 @@ export interface CreatePositionPayload {
   is_closed: boolean;
   closing_price: number | null;
   purchase_date?: string | null;
+  boursorama_forum_url?: string | null;
 }
 
 export interface UpdatePositionPayload {
@@ -67,4 +87,5 @@ export interface UpdatePositionPayload {
   is_closed?: boolean;
   closing_price?: number | null;
   purchase_date?: string | null;
+  boursorama_forum_url?: string | null;
 }
