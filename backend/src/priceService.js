@@ -18,6 +18,16 @@ function extractPrice10dFromHistory(entries = []) {
   return closes[0];
 }
 
+function extractPrice1yFromHistory(entries = []) {
+  const closes = entries
+    .map((entry) => safeNumber(entry?.adjClose ?? entry?.close))
+    .filter((value) => value !== null);
+  if (!closes.length) {
+    return null;
+  }
+  return closes[0];
+}
+
 export async function getPrices(symbols) {
   if (!symbols?.length) {
     return {};
@@ -44,23 +54,31 @@ export async function getPrices(symbols) {
             : safeNumber(quote?.regularMarketChangePercent);
 
         let price10d = null;
+        let price1y = null;
         try {
           const end = new Date();
           const start = new Date();
-          start.setDate(end.getDate() - 30);
+          start.setFullYear(end.getFullYear() - 1);
           const history = await yahooFinance.historical(upper, {
             period1: start,
             period2: end,
             interval: "1d",
           });
           price10d = extractPrice10dFromHistory(history);
+          price1y = extractPrice1yFromHistory(history);
         } catch (error) {
           price10d = null;
+          price1y = null;
         }
 
         const change10dPct =
           current !== null && price10d !== null && price10d !== 0
             ? ((current / price10d) - 1) * 100
+            : null;
+
+        const change1yPct =
+          current !== null && price1y !== null && price1y !== 0
+            ? ((current / price1y) - 1) * 100
             : null;
 
         results[upper] = {
@@ -71,6 +89,8 @@ export async function getPrices(symbols) {
           currency: quote?.currency ?? null,
           price_10d: price10d,
           change_10d_pct: change10dPct,
+          price_1y: price1y,
+          change_1y_pct: change1yPct,
         };
       } catch (error) {
         results[upper] = {
@@ -81,6 +101,8 @@ export async function getPrices(symbols) {
           currency: null,
           price_10d: null,
           change_10d_pct: null,
+          price_1y: null,
+          change_1y_pct: null,
         };
       }
     }),

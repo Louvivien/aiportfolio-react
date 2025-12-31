@@ -13,12 +13,14 @@ export interface PositionRow {
   intradayAbs: number | null;
   intradayPercent: number | null;
   tenDayPercent: number | null;
+  oneYearPercent: number | null;
 }
 
 export interface RangeStats {
   pnlRange: { min: number; max: number; median: number };
   intradayRange: { min: number; max: number };
   tenDayRange: { min: number; max: number };
+  oneYearRange: { min: number; max: number };
 }
 
 export interface PortfolioTotals {
@@ -67,6 +69,7 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
   const pnlValues: number[] = [];
   const intradayPercents: number[] = [];
   const tenDayPercents: number[] = [];
+  const oneYearPercents: number[] = [];
 
   let totalMarketValueOpen = 0;
   let intradayAbsSum = 0;
@@ -145,6 +148,34 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
       }
     }
 
+    let oneYearPercent: number | null = null;
+    if (!isClosed) {
+      const rawPrice1y =
+        position.price_1y !== null && position.price_1y !== undefined
+          ? toNumber(position.price_1y, NaN)
+          : NaN;
+      if (!Number.isNaN(rawPrice1y) && rawPrice1y !== 0) {
+        oneYearPercent = ((effectivePrice - rawPrice1y) / rawPrice1y) * 100;
+      }
+
+      if (
+        (oneYearPercent === null || Number.isNaN(oneYearPercent)) &&
+        position.change_1y_pct !== null &&
+        position.change_1y_pct !== undefined
+      ) {
+        const pct = toNumber(position.change_1y_pct, NaN);
+        if (!Number.isNaN(pct)) {
+          oneYearPercent = pct;
+        }
+      }
+
+      if (oneYearPercent !== null && !Number.isNaN(oneYearPercent)) {
+        oneYearPercents.push(oneYearPercent);
+      } else {
+        oneYearPercent = null;
+      }
+    }
+
     rows.push({
       position,
       isClosed,
@@ -158,6 +189,7 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
       intradayAbs,
       intradayPercent,
       tenDayPercent,
+      oneYearPercent,
     });
 
     pnlValues.push(pnlValue);
@@ -196,6 +228,11 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
     max: tenDayPercents.length ? Math.max(...tenDayPercents) : 0,
   };
 
+  const oneYearRange = {
+    min: oneYearPercents.length ? Math.min(...oneYearPercents) : 0,
+    max: oneYearPercents.length ? Math.max(...oneYearPercents) : 0,
+  };
+
   const totalInvestAll = totalInvestOpen;
   const plOpen = totalMarketValueOpen - totalInvestOpen;
   const plOpenPct = totalInvestOpen ? (plOpen / totalInvestOpen) * 100 : 0;
@@ -212,7 +249,7 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
 
   return {
     rows,
-    ranges: { pnlRange, intradayRange, tenDayRange },
+    ranges: { pnlRange, intradayRange, tenDayRange, oneYearRange },
     totals: {
       totalInvestAll,
       totalInvestClosed,

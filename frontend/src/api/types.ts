@@ -16,6 +16,8 @@ export interface Position {
   currency?: string | null;
   price_10d?: number | null;
   change_10d_pct?: number | null;
+  price_1y?: number | null;
+  change_1y_pct?: number | null;
   tags: string[];
   is_closed?: boolean;
   closing_price?: number | null;
@@ -37,6 +39,7 @@ export interface TagSummaryRow {
   total_unrealized_pl: number;
   intraday_change_pct: number | null;
   change_10d_pct: number | null;
+  change_1y_pct: number | null;
 }
 
 export interface TimeseriesPoint {

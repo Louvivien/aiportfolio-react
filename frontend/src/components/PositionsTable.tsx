@@ -44,6 +44,7 @@ export type SortableColumn =
   | "intradayAbs"
   | "intradayPct"
   | "tenDayPct"
+  | "oneYearPct"
   | "tags";
 
 export interface SortConfig {
@@ -56,6 +57,7 @@ interface PositionsTableProps {
   pnlRange: { min: number; max: number; median: number };
   intradayRange: { min: number; max: number };
   tenDayRange: { min: number; max: number };
+  oneYearRange: { min: number; max: number };
   sortConfig: SortConfig;
   onChangeSort: (column: SortableColumn) => void;
   onResetSort: () => void;
@@ -81,6 +83,7 @@ const columnMeta: { key: SortableColumn; label: string }[] = [
   { key: "intradayAbs", label: "Intraday" },
   { key: "intradayPct", label: "Intraday %" },
   { key: "tenDayPct", label: "10D %" },
+  { key: "oneYearPct", label: "1Y %" },
   { key: "tags", label: "Tags" },
 ];
 
@@ -105,6 +108,7 @@ const comparatorMap: Record<SortableColumn, (row: PositionRow) => unknown> = {
   intradayAbs: (row) => row.intradayAbs,
   intradayPct: (row) => row.intradayPercent,
   tenDayPct: (row) => row.tenDayPercent,
+  oneYearPct: (row) => row.oneYearPercent,
   tags: (row) => row.position.tags.join(",").toUpperCase(),
 };
 
@@ -120,6 +124,7 @@ export function PositionsTable({
   pnlRange,
   intradayRange,
   tenDayRange,
+  oneYearRange,
   sortConfig,
   onChangeSort,
   onResetSort,
@@ -362,6 +367,14 @@ export function PositionsTable({
                 row.tenDayPercent === null
                   ? undefined
                   : colorFromScaleIntraday(row.tenDayPercent, tenDayRange.min, tenDayRange.max);
+              const oneYearStyle =
+                row.oneYearPercent === null
+                  ? undefined
+                  : colorFromScaleIntraday(
+                      row.oneYearPercent,
+                      oneYearRange.min,
+                      oneYearRange.max,
+                    );
 
               return (
                 <tr key={position.id ?? position.symbol}>
@@ -425,6 +438,13 @@ export function PositionsTable({
                       "—"
                     ) : (
                       <span style={tenDayStyle}>{formatNumber(row.tenDayPercent)}%</span>
+                    )}
+                  </td>
+                  <td>
+                    {row.oneYearPercent === null ? (
+                      "—"
+                    ) : (
+                      <span style={oneYearStyle}>{formatNumber(row.oneYearPercent)}%</span>
                     )}
                   </td>
                   <td>

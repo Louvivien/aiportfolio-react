@@ -323,6 +323,7 @@ function App() {
           pnlRange={portfolioView.ranges.pnlRange}
           intradayRange={portfolioView.ranges.intradayRange}
           tenDayRange={portfolioView.ranges.tenDayRange}
+          oneYearRange={portfolioView.ranges.oneYearRange}
           sortConfig={sortConfig}
           onChangeSort={handleSortChange}
           onResetSort={handleResetSort}

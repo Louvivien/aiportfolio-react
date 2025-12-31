@@ -71,6 +71,38 @@ function computeEffectivePrice(doc, priceEntry) {
 }
 
 function enrichDocument(doc, priceEntry, tagNames) {
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+  const isClosed = asBoolean(doc?.is_closed);
+  const liveRaw = priceEntry?.current;
+  const live =
+    liveRaw === null || liveRaw === undefined ? null : normaliseNumber(liveRaw, NaN);
+
+  const purchaseDate = parseDateInput(doc?.purchase_date) ?? parseDateInput(doc?.created_at);
+
+  const costRaw = doc?.cost_price;
+  const cost =
+    costRaw === null || costRaw === undefined ? null : normaliseNumber(costRaw, NaN);
+
+  const historicRaw = priceEntry?.price_1y;
+  const historic =
+    historicRaw === null || historicRaw === undefined ? null : normaliseNumber(historicRaw, NaN);
+
+  let price1yBase = null;
+  let change1yPct = null;
+  if (!isClosed && live !== null && Number.isFinite(live) && live !== 0) {
+    if (purchaseDate && purchaseDate > oneYearAgo && cost !== null && Number.isFinite(cost) && cost !== 0) {
+      price1yBase = cost;
+    } else if (historic !== null && Number.isFinite(historic) && historic !== 0) {
+      price1yBase = historic;
+    }
+
+    if (price1yBase !== null) {
+      change1yPct = ((live / price1yBase) - 1) * 100;
+    }
+  }
+
   const enriched = {
     ...doc,
     purchase_date: toIsoDateTime(doc?.purchase_date),
@@ -83,6 +115,8 @@ function enrichDocument(doc, priceEntry, tagNames) {
     currency: priceEntry?.currency ?? null,
     price_10d: priceEntry?.price_10d ?? null,
     change_10d_pct: priceEntry?.change_10d_pct ?? null,
+    price_1y: price1yBase,
+    change_1y_pct: change1yPct,
     tags: tagNames,
     boursorama_forum_url: doc?.boursorama_forum_url ?? guessBoursoramaForumUrl(doc?.symbol),
   };
@@ -363,6 +397,8 @@ router.get("/tags/summary", async (req, res, next) => {
     const tagNameMap = new Map(tagDocs.map((doc) => [String(doc._id), doc.name]));
 
     const buckets = new Map();
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
     docs.forEach((doc) => {
       if (asBoolean(doc.is_closed)) {
@@ -385,6 +421,10 @@ router.get("/tags/summary", async (req, res, next) => {
         change !== null && change !== undefined ? (current - change) * qty : null;
       const mv10d =
         price10d !== null && price10d !== undefined ? price10d * qty : null;
+      const purchaseDate = parseDateInput(doc?.purchase_date) ?? parseDateInput(doc?.created_at);
+      const basePrice1y = purchaseDate && purchaseDate > oneYearAgo ? cost : priceEntry?.price_1y;
+      const mv1y =
+        basePrice1y !== null && basePrice1y !== undefined ? normaliseNumber(basePrice1y, 0) * qty : null;
       const pl = (current - cost) * qty;
 
       ensureArray(doc.tags).forEach((tagId) => {
@@ -403,6 +443,8 @@ router.get("/tags/summary", async (req, res, next) => {
             _mv_prev_now: 0,
             _mv_10d_base: 0,
             _mv_10d_now: 0,
+            _mv_1y_base: 0,
+            _mv_1y_now: 0,
           }).get(name);
 
         bucket.total_quantity += qty;
@@ -417,6 +459,10 @@ router.get("/tags/summary", async (req, res, next) => {
           bucket._mv_10d_base += mv10d;
           bucket._mv_10d_now += mvNow - mv10d;
         }
+        if (mv1y !== null && mv1y !== 0) {
+          bucket._mv_1y_base += mv1y;
+          bucket._mv_1y_now += mvNow - mv1y;
+        }
       });
     });
 
@@ -426,6 +472,8 @@ router.get("/tags/summary", async (req, res, next) => {
       const prevNum = bucket._mv_prev_now;
       const tenDen = bucket._mv_10d_base;
       const tenNum = bucket._mv_10d_now;
+      const oneDen = bucket._mv_1y_base;
+      const oneNum = bucket._mv_1y_now;
 
       output.push({
         tag: bucket.tag,
@@ -434,6 +482,7 @@ router.get("/tags/summary", async (req, res, next) => {
         total_unrealized_pl: bucket.total_unrealized_pl,
         intraday_change_pct: prevDen ? (prevNum / prevDen) * 100 : null,
         change_10d_pct: tenDen ? (tenNum / tenDen) * 100 : null,
+        change_1y_pct: oneDen ? (oneNum / oneDen) * 100 : null,
       });
     });
 

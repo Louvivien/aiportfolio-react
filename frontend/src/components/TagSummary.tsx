@@ -16,6 +16,9 @@ export function TagSummary({ rows, activeFilter, onFilter, onOpenTimeseries }: T
   const tenDayValues = rows
     .map((row) => row.change_10d_pct)
     .filter((value): value is number => value !== null && value !== undefined);
+  const oneYearValues = rows
+    .map((row) => row.change_1y_pct)
+    .filter((value): value is number => value !== null && value !== undefined);
 
   const intradayRange = {
     min: intradayValues.length ? Math.min(...intradayValues) : 0,
@@ -24,6 +27,10 @@ export function TagSummary({ rows, activeFilter, onFilter, onOpenTimeseries }: T
   const tenDayRange = {
     min: tenDayValues.length ? Math.min(...tenDayValues) : 0,
     max: tenDayValues.length ? Math.max(...tenDayValues) : 0,
+  };
+  const oneYearRange = {
+    min: oneYearValues.length ? Math.min(...oneYearValues) : 0,
+    max: oneYearValues.length ? Math.max(...oneYearValues) : 0,
   };
 
   return (
@@ -66,6 +73,7 @@ export function TagSummary({ rows, activeFilter, onFilter, onOpenTimeseries }: T
                 <th>Unrealized P/L</th>
                 <th>Intraday %</th>
                 <th>10D %</th>
+                <th>1Y %</th>
                 <th>Chart</th>
               </tr>
             </thead>
@@ -86,6 +94,14 @@ export function TagSummary({ rows, activeFilter, onFilter, onOpenTimeseries }: T
                         row.change_10d_pct,
                         tenDayRange.min,
                         tenDayRange.max,
+                      );
+                const oneYearStyle =
+                  row.change_1y_pct === null
+                    ? undefined
+                    : colorFromScaleIntraday(
+                        row.change_1y_pct,
+                        oneYearRange.min,
+                        oneYearRange.max,
                       );
 
                 return (
@@ -115,6 +131,13 @@ export function TagSummary({ rows, activeFilter, onFilter, onOpenTimeseries }: T
                         "—"
                       ) : (
                         <span style={tenDayStyle}>{formatNumber(row.change_10d_pct)}%</span>
+                      )}
+                    </td>
+                    <td>
+                      {row.change_1y_pct === null ? (
+                        "—"
+                      ) : (
+                        <span style={oneYearStyle}>{formatNumber(row.change_1y_pct)}%</span>
                       )}
                     </td>
                     <td>
