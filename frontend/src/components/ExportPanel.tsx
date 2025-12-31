@@ -43,6 +43,7 @@ const TAG_COLUMNS = [
   "tag",
   "total_quantity",
   "total_market_value",
+  "allocation_pct",
   "total_unrealized_pl",
   "intraday_change_pct",
   "change_10d_pct",
@@ -93,13 +94,16 @@ export function ExportPanel({ positions, rawPositions, tagSummary, totals }: Exp
       tag: row.tag,
       total_quantity: row.total_quantity,
       total_market_value: row.total_market_value,
+      allocation_pct: totals.totalMarketValueOpen
+        ? (row.total_market_value / totals.totalMarketValueOpen) * 100
+        : null,
       total_unrealized_pl: row.total_unrealized_pl,
       intraday_change_pct: row.intraday_change_pct,
       change_10d_pct: row.change_10d_pct,
       change_1y_pct: row.change_1y_pct,
     }));
     downloadCsv(`aiportfolio_tag_summary_${stamp}.csv`, rows, TAG_COLUMNS);
-  }, [tagSummary]);
+  }, [tagSummary, totals.totalMarketValueOpen]);
 
   const exportTotals = useCallback(() => {
     const stamp = timestampForFilename();
@@ -158,4 +162,3 @@ export function ExportPanel({ positions, rawPositions, tagSummary, totals }: Exp
 }
 
 export default ExportPanel;
-

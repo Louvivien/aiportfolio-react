@@ -7,9 +7,16 @@ interface TagSummaryProps {
   activeFilter: string | null;
   onFilter: (tag: string | null) => void;
   onOpenTimeseries: (selection: string[]) => void;
+  totalMarketValueOpen: number;
 }
 
-export function TagSummary({ rows, activeFilter, onFilter, onOpenTimeseries }: TagSummaryProps) {
+export function TagSummary({
+  rows,
+  activeFilter,
+  onFilter,
+  onOpenTimeseries,
+  totalMarketValueOpen,
+}: TagSummaryProps) {
   const intradayValues = rows
     .map((row) => row.intraday_change_pct)
     .filter((value): value is number => value !== null && value !== undefined);
@@ -70,6 +77,7 @@ export function TagSummary({ rows, activeFilter, onFilter, onOpenTimeseries }: T
               <tr>
                 <th>Tag</th>
                 <th>Market Value</th>
+                <th>Alloc %</th>
                 <th>Unrealized P/L</th>
                 <th>Intraday %</th>
                 <th>10D %</th>
@@ -118,6 +126,15 @@ export function TagSummary({ rows, activeFilter, onFilter, onOpenTimeseries }: T
                       </button>
                     </td>
                     <td>{formatCurrency(row.total_market_value, "EUR")}</td>
+                    <td>
+                      {totalMarketValueOpen ? (
+                        <span className="pill">
+                          {formatNumber((row.total_market_value / totalMarketValueOpen) * 100)}%
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td>{formatCurrency(row.total_unrealized_pl, "EUR")}</td>
                     <td>
                       {row.intraday_change_pct === null ? (

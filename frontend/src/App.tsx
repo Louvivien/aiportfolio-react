@@ -310,6 +310,7 @@ function App() {
         activeFilter={filterTag}
         onFilter={setFilterTag}
         onOpenTimeseries={openTimeseries}
+        totalMarketValueOpen={portfolioTotals.totals.totalMarketValueOpen}
       />
 
       <TotalsPanel totals={portfolioTotals.totals} />
