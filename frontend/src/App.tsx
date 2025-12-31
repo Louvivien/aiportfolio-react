@@ -7,6 +7,7 @@ import TagSummary from "./components/TagSummary";
 import TimeseriesPanel from "./components/TimeseriesPanel";
 import TotalsPanel from "./components/TotalsPanel";
 import PositionsPie from "./components/PositionsPie";
+import PositionsPnLBar from "./components/PositionsPnLBar";
 import {
   createPosition,
   deletePosition,
@@ -333,6 +334,7 @@ function App() {
       )}
 
       <PositionsPie rows={portfolioView.rows} />
+      <PositionsPnLBar rows={portfolioView.rows} />
 
       <AddPositionForm
         onCreate={handleCreate}
