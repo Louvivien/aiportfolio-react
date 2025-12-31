@@ -83,6 +83,7 @@ export async function getPrices(symbols) {
 
         results[upper] = {
           current,
+          previous_close: previous,
           change,
           change_pct: changePct,
           long_name: quote?.longName ?? quote?.shortName ?? null,
@@ -95,6 +96,7 @@ export async function getPrices(symbols) {
       } catch (error) {
         results[upper] = {
           current: null,
+          previous_close: null,
           change: null,
           change_pct: null,
           long_name: null,

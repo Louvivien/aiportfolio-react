@@ -66,6 +66,14 @@ const toFinite = (value: unknown): number | null => {
   return Number.isFinite(num) ? num : null;
 };
 
+const toDate = (value: string | null | undefined): Date | null => {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const impliedBaseFromPercent = (effectivePrice: number, percent: number): number | null => {
   const denom = 1 + percent / 100;
   if (!Number.isFinite(denom) || denom === 0) {
@@ -82,34 +90,27 @@ function buildBarData(rows: PositionRow[]): BarDatum[] {
       const symbol = row.position.symbol;
       const longName = row.position.long_name || null;
       const label = symbol || row.position.id || longName || "Position";
-      const isClosed = row.isClosed;
       const qty = row.quantity;
       const eff = row.effectivePrice;
 
-      const intradayValue = isClosed ? null : row.intradayAbs;
-      const intradayPercent = isClosed ? null : row.intradayPercent;
+      const intradayPercent =
+        row.intradayPercent ?? toFinite(row.position.intraday_change_pct);
+      const intradayChange = toFinite(row.position.intraday_change);
+      const intradayValue = row.intradayAbs ?? (intradayChange !== null ? intradayChange * qty : null);
 
-      const tenDayPercent = isClosed
-        ? null
-        : row.tenDayPercent ?? toFinite(row.position.change_10d_pct);
-      let tenDayBase = isClosed ? null : toFinite(row.position.price_10d);
-      if (!isClosed && (tenDayBase === null || tenDayBase === 0) && tenDayPercent !== null) {
+      const tenDayPercent = row.tenDayPercent ?? toFinite(row.position.change_10d_pct);
+      let tenDayBase = toFinite(row.position.price_10d);
+      if ((tenDayBase === null || tenDayBase === 0) && tenDayPercent !== null) {
         tenDayBase = impliedBaseFromPercent(eff, tenDayPercent);
       }
-      const tenDayValue = !isClosed && tenDayBase !== null ? (eff - tenDayBase) * qty : null;
+      const tenDayValue = tenDayBase !== null ? (eff - tenDayBase) * qty : null;
 
-      const oneYearPercent = isClosed
-        ? null
-        : row.oneYearPercent ?? toFinite(row.position.change_1y_pct);
-      let oneYearBase = isClosed ? null : toFinite(row.position.price_1y);
-      if (
-        !isClosed &&
-        (oneYearBase === null || oneYearBase === 0) &&
-        oneYearPercent !== null
-      ) {
+      const oneYearPercent = row.oneYearPercent ?? toFinite(row.position.change_1y_pct);
+      let oneYearBase = toFinite(row.position.price_1y);
+      if ((oneYearBase === null || oneYearBase === 0) && oneYearPercent !== null) {
         oneYearBase = impliedBaseFromPercent(eff, oneYearPercent);
       }
-      const oneYearValue = !isClosed && oneYearBase !== null ? (eff - oneYearBase) * qty : null;
+      const oneYearValue = oneYearBase !== null ? (eff - oneYearBase) * qty : null;
 
       return {
         label,
@@ -149,7 +150,38 @@ export function PositionsPnLBar({ rows, showClosed, onToggleShowClosed }: Positi
     }
   }, [period]);
 
-  const rawData = useMemo(() => buildBarData(rows), [rows]);
+  const filteredRows = useMemo(() => {
+    if (period === "all") {
+      return rows;
+    }
+    const now = new Date();
+    const todayIso = now.toISOString().slice(0, 10);
+
+    const oneYearAgo = new Date(now);
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+    const tenDaysAgo = new Date(now);
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+
+    return rows.filter((row) => {
+      if (!row.isClosed) {
+        return true;
+      }
+      const closedAt = toDate(row.position.closing_date ?? row.position.updated_at ?? null);
+      if (!closedAt) {
+        return false;
+      }
+      if (period === "1y") {
+        return closedAt >= oneYearAgo;
+      }
+      if (period === "10d") {
+        return closedAt >= tenDaysAgo;
+      }
+      return closedAt.toISOString().slice(0, 10) === todayIso;
+    });
+  }, [period, rows]);
+
+  const rawData = useMemo(() => buildBarData(filteredRows), [filteredRows]);
 
   const periodLabel = useMemo(() => {
     switch (period) {

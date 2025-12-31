@@ -75,6 +75,9 @@ function enrichDocument(doc, priceEntry, tagNames) {
   oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
 
   const isClosed = asBoolean(doc?.is_closed);
+  const resolvedClosingDate = isClosed
+    ? parseDateInput(doc?.closing_date) ?? parseDateInput(doc?.updated_at)
+    : null;
   const liveRaw = priceEntry?.current;
   const live =
     liveRaw === null || liveRaw === undefined ? null : normaliseNumber(liveRaw, NaN);
@@ -89,17 +92,58 @@ function enrichDocument(doc, priceEntry, tagNames) {
   const historic =
     historicRaw === null || historicRaw === undefined ? null : normaliseNumber(historicRaw, NaN);
 
+  const endPriceRaw = isClosed ? doc?.closing_price : liveRaw;
+  const endPrice =
+    endPriceRaw === null || endPriceRaw === undefined
+      ? null
+      : normaliseNumber(endPriceRaw, NaN);
+  const end = endPrice !== null && Number.isFinite(endPrice) ? endPrice : null;
+
+  const prevCloseRaw = priceEntry?.previous_close;
+  const prevClose =
+    prevCloseRaw === null || prevCloseRaw === undefined ? null : normaliseNumber(prevCloseRaw, NaN);
+  let prev =
+    prevClose !== null && Number.isFinite(prevClose) && prevClose !== 0 ? prevClose : null;
+
+  if (!isClosed && prev === null && end !== null && priceEntry?.change !== null && priceEntry?.change !== undefined) {
+    const changeVal = normaliseNumber(priceEntry.change, NaN);
+    const derivedPrev = Number.isFinite(changeVal) ? end - changeVal : NaN;
+    if (Number.isFinite(derivedPrev) && derivedPrev !== 0) {
+      prev = derivedPrev;
+    }
+  }
+
+  const price10dRaw = priceEntry?.price_10d;
+  const price10d =
+    price10dRaw === null || price10dRaw === undefined ? null : normaliseNumber(price10dRaw, NaN);
+  const tenBase = price10d !== null && Number.isFinite(price10d) && price10d !== 0 ? price10d : null;
+  const change10dPct = end !== null && tenBase !== null ? ((end / tenBase) - 1) * 100 : null;
+
+  const intradayAllowed =
+    !isClosed ||
+    (resolvedClosingDate &&
+      toIsoDateOnly(resolvedClosingDate) === toIsoDateOnly(new Date()));
+  const intradayChange = intradayAllowed && end !== null && prev !== null ? end - prev : null;
+  const intradayPct =
+    intradayAllowed && end !== null && prev !== null ? ((end / prev) - 1) * 100 : null;
+
   let price1yBase = null;
   let change1yPct = null;
-  if (!isClosed && live !== null && Number.isFinite(live) && live !== 0) {
-    if (purchaseDate && purchaseDate > oneYearAgo && cost !== null && Number.isFinite(cost) && cost !== 0) {
+  if (end !== null && end !== 0) {
+    if (
+      purchaseDate &&
+      purchaseDate > oneYearAgo &&
+      cost !== null &&
+      Number.isFinite(cost) &&
+      cost !== 0
+    ) {
       price1yBase = cost;
     } else if (historic !== null && Number.isFinite(historic) && historic !== 0) {
       price1yBase = historic;
     }
 
     if (price1yBase !== null) {
-      change1yPct = ((live / price1yBase) - 1) * 100;
+      change1yPct = ((end / price1yBase) - 1) * 100;
     }
   }
 
@@ -108,13 +152,14 @@ function enrichDocument(doc, priceEntry, tagNames) {
     purchase_date: toIsoDateTime(doc?.purchase_date),
     created_at: toIsoDateTime(doc?.created_at),
     updated_at: toIsoDateTime(doc?.updated_at),
+    closing_date: toIsoDateTime(resolvedClosingDate),
     current_price: computeEffectivePrice(doc, priceEntry),
     long_name: priceEntry?.long_name ?? null,
-    intraday_change: priceEntry?.change ?? null,
-    intraday_change_pct: priceEntry?.change_pct ?? null,
+    intraday_change: intradayChange,
+    intraday_change_pct: intradayPct,
     currency: priceEntry?.currency ?? null,
-    price_10d: priceEntry?.price_10d ?? null,
-    change_10d_pct: priceEntry?.change_10d_pct ?? null,
+    price_10d: tenBase,
+    change_10d_pct: change10dPct,
     price_1y: price1yBase,
     change_1y_pct: change1yPct,
     tags: tagNames,
@@ -166,16 +211,19 @@ router.post("/", async (req, res, next) => {
     const tagIds = await upsertTagsReturnIds(body.tags || []);
     const now = new Date();
     const purchaseDate = parseDateInput(body.purchase_date);
+    const closingDate = parseDateInput(body.closing_date);
+    const isClosed = Boolean(body.is_closed);
     const doc = {
       symbol: String(body.symbol || "").toUpperCase(),
       quantity: normaliseNumber(body.quantity, 0),
       cost_price: normaliseNumber(body.cost_price, 0),
       tags: tagIds,
-      is_closed: Boolean(body.is_closed),
+      is_closed: isClosed,
       closing_price:
         body.closing_price === null || body.closing_price === undefined
           ? null
           : normaliseNumber(body.closing_price),
+      closing_date: isClosed ? closingDate ?? now : null,
       purchase_date: purchaseDate ?? now,
       boursorama_forum_url: normalizeForumUrl(body.boursorama_forum_url, body.symbol),
       created_at: now,
@@ -234,6 +282,9 @@ router.put("/:id", async (req, res, next) => {
 
     const updates = {};
     const body = req.body || {};
+    const nextIsClosed =
+      body.is_closed !== undefined ? Boolean(body.is_closed) : asBoolean(existing.is_closed);
+    const hasClosingDate = body.closing_date !== undefined;
 
     if (body.symbol !== undefined) {
       updates.symbol = String(body.symbol || "").toUpperCase();
@@ -245,13 +296,22 @@ router.put("/:id", async (req, res, next) => {
       updates.cost_price = normaliseNumber(body.cost_price);
     }
     if (body.is_closed !== undefined) {
-      updates.is_closed = Boolean(body.is_closed);
+      updates.is_closed = nextIsClosed;
+      if (!nextIsClosed) {
+        updates.closing_date = null;
+      } else if (!hasClosingDate) {
+        updates.closing_date = parseDateInput(existing?.closing_date) ?? new Date();
+      }
     }
     if (body.closing_price !== undefined) {
       updates.closing_price =
         body.closing_price === null || body.closing_price === undefined
           ? null
           : normaliseNumber(body.closing_price);
+    }
+    if (body.closing_date !== undefined) {
+      const parsedDate = parseDateInput(body.closing_date);
+      updates.closing_date = nextIsClosed ? parsedDate ?? null : null;
     }
     if (body.tags !== undefined) {
       updates.tags = await upsertTagsReturnIds(body.tags || []);
@@ -262,6 +322,16 @@ router.put("/:id", async (req, res, next) => {
     }
     if (body.boursorama_forum_url !== undefined) {
       updates.boursorama_forum_url = normalizeForumUrl(body.boursorama_forum_url, body.symbol ?? existing.symbol);
+    }
+
+    if (
+      nextIsClosed &&
+      !hasClosingDate &&
+      body.is_closed === undefined &&
+      parseDateInput(existing?.closing_date) === null &&
+      parseDateInput(existing?.updated_at) !== null
+    ) {
+      updates.closing_date = parseDateInput(existing.updated_at);
     }
 
     if (Object.keys(updates).length) {

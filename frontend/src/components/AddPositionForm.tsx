@@ -14,6 +14,7 @@ const INITIAL_STATE = {
   quantity: "",
   costPrice: "",
   closingPrice: "",
+  closingDate: "",
   isClosed: false,
   tags: [] as string[],
   purchaseDate: "",
@@ -26,6 +27,15 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
+
+  const handleToggleClosed = (checked: boolean) => {
+    setState((prev) => ({
+      ...prev,
+      isClosed: checked,
+      closingPrice: checked ? prev.closingPrice : "",
+      closingDate: checked ? prev.closingDate || today : "",
+    }));
+  };
 
   const updateField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setState((prev) => ({ ...prev, [key]: value }));
@@ -59,12 +69,18 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
     }
 
     let closingValue: number | null = null;
+    let closingDate: string | null = null;
     if (state.isClosed) {
       closingValue = parsePrice(state.closingPrice);
       if (closingValue === null) {
         setError("Provide a valid closing price for closed positions.");
         return;
       }
+      if (!state.closingDate) {
+        setError("Provide a closing date for closed positions.");
+        return;
+      }
+      closingDate = state.closingDate;
     }
 
     const payload: CreatePositionPayload = {
@@ -74,6 +90,7 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
       tags: state.tags,
       is_closed: state.isClosed,
       closing_price: closingValue,
+      closing_date: closingDate,
       purchase_date: state.purchaseDate || undefined,
     };
 
@@ -148,7 +165,7 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
                   id="add-closed"
                   type="checkbox"
                   checked={state.isClosed}
-                  onChange={(event) => updateField("isClosed", event.target.checked)}
+                  onChange={(event) => handleToggleClosed(event.target.checked)}
                   disabled={loading}
                 />
                 Mark as closed
@@ -162,6 +179,15 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
                     placeholder="28,09 or 28.09"
                     value={state.closingPrice}
                     onChange={(event) => updateField("closingPrice", event.target.value)}
+                    disabled={loading}
+                  />
+                  <label htmlFor="add-closing-date">Closing Date</label>
+                  <input
+                    id="add-closing-date"
+                    type="date"
+                    value={state.closingDate}
+                    max={today}
+                    onChange={(event) => updateField("closingDate", event.target.value)}
                     disabled={loading}
                   />
                 </>

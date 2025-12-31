@@ -44,6 +44,7 @@ const normalizePosition = (raw: Position): Position => {
     id,
     tags,
     purchase_date: purchase,
+    closing_date: normalizeDateValue(raw.closing_date),
     created_at: normalizeDateValue(raw.created_at),
     updated_at: normalizeDateValue(raw.updated_at),
   };

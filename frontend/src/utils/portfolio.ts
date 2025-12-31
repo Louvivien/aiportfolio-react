@@ -48,6 +48,14 @@ const toNumber = (value: unknown, fallback = 0): number => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const toDate = (value: unknown): Date | null => {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const median = (values: number[]): number => {
   if (!values.length) {
     return 0;
@@ -73,6 +81,13 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
   const tenDayPercents: number[] = [];
   const oneYearPercents: number[] = [];
 
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const tenDaysAgo = new Date(now);
+  tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+  const oneYearAgo = new Date(now);
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
   let totalMarketValueOpen = 0;
   let intradayAbsSum = 0;
   let totalMarketValueOpen10d = 0;
@@ -83,6 +98,11 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
 
   for (const position of positions) {
     const isClosed = Boolean(position.is_closed);
+    const closedAt = isClosed ? toDate(position.closing_date ?? position.updated_at ?? null) : null;
+    const closedIso = closedAt ? closedAt.toISOString().slice(0, 10) : null;
+    const intradayEligible = !isClosed || closedIso === todayIso;
+    const tenDayEligible = !isClosed || (closedAt !== null && closedAt >= tenDaysAgo);
+    const oneYearEligible = !isClosed || (closedAt !== null && closedAt >= oneYearAgo);
     const quantity = toNumber(position.quantity);
     const cost = toNumber(position.cost_price);
     const invested = quantity * cost;
@@ -99,7 +119,7 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
 
     let intradayAbs: number | null = null;
     let intradayPercent: number | null = null;
-    if (!isClosed) {
+    if (intradayEligible) {
       const change = position.intraday_change;
       const changePct = position.intraday_change_pct;
       if (change !== null && change !== undefined) {
@@ -117,7 +137,7 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
 
     let tenDayPercent: number | null = null;
     let price10dValue: number | null = null;
-    if (!isClosed) {
+    if (tenDayEligible) {
       const rawPrice10d =
         position.price_10d !== null && position.price_10d !== undefined
           ? toNumber(position.price_10d, NaN)
@@ -153,7 +173,7 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
 
     let oneYearPercent: number | null = null;
     let price1yValue: number | null = null;
-    if (!isClosed) {
+    if (oneYearEligible) {
       const rawPrice1y =
         position.price_1y !== null && position.price_1y !== undefined
           ? toNumber(position.price_1y, NaN)

@@ -17,6 +17,7 @@ interface EditState {
   costPrice: string;
   isClosed: boolean;
   closingPrice: string;
+  closingDate: string;
   tags: string[];
   purchaseDate: string;
   forumUrl: string;
@@ -28,6 +29,7 @@ const EMPTY_STATE: EditState = {
   costPrice: "",
   isClosed: false,
   closingPrice: "",
+  closingDate: "",
   tags: [],
   purchaseDate: "",
   forumUrl: "",
@@ -53,11 +55,14 @@ export function EditPositionModal({
       symbol: position.symbol,
       quantity: String(position.quantity ?? ""),
       costPrice: String(position.cost_price ?? ""),
-      isClosed: Boolean(position.is_closed),
+      isClosed: position.is_closed ?? false,
       closingPrice:
         position.closing_price === null || position.closing_price === undefined
           ? ""
           : String(position.closing_price),
+      closingDate: (position.is_closed ?? false)
+        ? toDateInputValue(position.closing_date ?? position.updated_at ?? null)
+        : "",
       tags: Array.isArray(position.tags) ? position.tags : [],
       purchaseDate: toDateInputValue(position.purchase_date ?? position.created_at ?? null),
       forumUrl: position.boursorama_forum_url ?? "",
@@ -70,6 +75,15 @@ export function EditPositionModal({
 
   const updateState = <K extends keyof EditState>(key: K, value: EditState[K]) => {
     setState((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleToggleClosed = (checked: boolean) => {
+    setState((prev) => ({
+      ...prev,
+      isClosed: checked,
+      closingPrice: checked ? prev.closingPrice : "",
+      closingDate: checked ? prev.closingDate || today : "",
+    }));
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -99,12 +113,18 @@ export function EditPositionModal({
     }
 
     let closingValue: number | null | undefined = undefined;
+    let closingDate: string | null = null;
     if (state.isClosed) {
       closingValue = parsePrice(state.closingPrice);
       if (closingValue === null) {
         setError("Closing price must be a valid number.");
         return;
       }
+      if (!state.closingDate) {
+        setError("Closing date is required for closed positions.");
+        return;
+      }
+      closingDate = state.closingDate;
     } else {
       closingValue = null;
     }
@@ -117,6 +137,7 @@ export function EditPositionModal({
       cost_price: cost,
       is_closed: state.isClosed,
       closing_price: closingValue,
+      closing_date: closingDate,
       tags: state.tags,
       purchase_date: state.purchaseDate ? state.purchaseDate : null,
       boursorama_forum_url: forumUrlInput ? forumUrlInput : null,
@@ -196,7 +217,7 @@ export function EditPositionModal({
                   id="edit-closed"
                   type="checkbox"
                   checked={state.isClosed}
-                  onChange={(event) => updateState("isClosed", event.target.checked)}
+                  onChange={(event) => handleToggleClosed(event.target.checked)}
                   disabled={loading}
                 />
                 Closed position
@@ -210,6 +231,15 @@ export function EditPositionModal({
                     placeholder="28,09 or 28.09"
                     value={state.closingPrice}
                     onChange={(event) => updateState("closingPrice", event.target.value)}
+                    disabled={loading}
+                  />
+                  <label htmlFor="edit-closing-date">Closing Date</label>
+                  <input
+                    id="edit-closing-date"
+                    type="date"
+                    value={state.closingDate}
+                    max={today}
+                    onChange={(event) => updateState("closingDate", event.target.value)}
                     disabled={loading}
                   />
                 </>
