@@ -299,12 +299,6 @@ function App() {
         </div>
       )}
 
-      <AddPositionForm
-        onCreate={handleCreate}
-        loading={mutating}
-        tagSuggestions={tagSuggestions}
-      />
-
       <TagSummary
         rows={tagSummary}
         activeFilter={filterTag}
@@ -314,13 +308,6 @@ function App() {
       />
 
       <TotalsPanel totals={portfolioTotals.totals} />
-
-      <ExportPanel
-        positions={portfolioTotals.rows}
-        rawPositions={positions}
-        tagSummary={tagSummary}
-        totals={portfolioTotals.totals}
-      />
 
       {loading ? (
         <div className="card">
@@ -346,6 +333,19 @@ function App() {
       )}
 
       <PositionsPie rows={portfolioView.rows} />
+
+      <AddPositionForm
+        onCreate={handleCreate}
+        loading={mutating}
+        tagSuggestions={tagSuggestions}
+      />
+
+      <ExportPanel
+        positions={portfolioTotals.rows}
+        rawPositions={positions}
+        tagSummary={tagSummary}
+        totals={portfolioTotals.totals}
+      />
 
       {editing && (
         <EditPositionModal
