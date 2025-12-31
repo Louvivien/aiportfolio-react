@@ -14,6 +14,8 @@ import { formatCurrency, formatSignedPercent } from "../utils/format";
 
 interface PositionsPnLBarProps {
   rows: PositionRow[];
+  showClosed: boolean;
+  onToggleShowClosed: (value: boolean) => void;
 }
 
 interface BarDatum {
@@ -127,7 +129,7 @@ function buildBarData(rows: PositionRow[]): BarDatum[] {
     .sort((a, b) => a.pnlValue - b.pnlValue);
 }
 
-export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
+export function PositionsPnLBar({ rows, showClosed, onToggleShowClosed }: PositionsPnLBarProps) {
   const [metric, setMetric] = useState<PerfMetric>(() => loadMetric());
   const [period, setPeriod] = useState<PerfPeriod>(() => loadPeriod());
 
@@ -217,8 +219,19 @@ export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
   return (
     <div className="card">
       <div className="section-header">
-        <h2>Positions Performance (increasing)</h2>
+        <h2>Positions Performance</h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <label
+            className="checkbox-row"
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}
+          >
+            <input
+              type="checkbox"
+              checked={showClosed}
+              onChange={(event) => onToggleShowClosed(event.target.checked)}
+            />
+            Include closed positions
+          </label>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
               type="button"

@@ -334,7 +334,11 @@ function App() {
       )}
 
       <PositionsPie rows={portfolioView.rows} />
-      <PositionsPnLBar rows={portfolioView.rows} />
+      <PositionsPnLBar
+        rows={portfolioView.rows}
+        showClosed={showClosed}
+        onToggleShowClosed={setShowClosed}
+      />
 
       <AddPositionForm
         onCreate={handleCreate}
