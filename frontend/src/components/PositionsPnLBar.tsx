@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -21,6 +21,12 @@ interface BarDatum {
   fullName: string | null;
   pnlValue: number;
   pnlPercent: number;
+  tenDayValue: number | null;
+  tenDayPercent: number | null;
+  oneYearValue: number | null;
+  oneYearPercent: number | null;
+  intradayValue: number | null;
+  intradayPercent: number | null;
   currency: string | null | undefined;
   isClosed: boolean;
 }
@@ -29,15 +35,42 @@ const POSITIVE = "#34a853";
 const NEGATIVE = "#d93025";
 
 type PerfMetric = "value" | "percent";
+type PerfPeriod = "all" | "1y" | "10d" | "intraday";
 
-const STORAGE_KEY = "aiportfolio:positionsPnlMetric";
+const METRIC_STORAGE_KEY = "aiportfolio:positionsPnlMetric";
+const PERIOD_STORAGE_KEY = "aiportfolio:positionsPnlPeriod";
 
 const loadMetric = (): PerfMetric => {
   if (typeof window === "undefined") {
     return "value";
   }
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw = window.localStorage.getItem(METRIC_STORAGE_KEY);
   return raw === "percent" ? "percent" : "value";
+};
+
+const loadPeriod = (): PerfPeriod => {
+  if (typeof window === "undefined") {
+    return "all";
+  }
+  const raw = window.localStorage.getItem(PERIOD_STORAGE_KEY);
+  if (raw === "1y" || raw === "10d" || raw === "intraday") {
+    return raw;
+  }
+  return "all";
+};
+
+const toFinite = (value: unknown): number | null => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const impliedBaseFromPercent = (effectivePrice: number, percent: number): number | null => {
+  const denom = 1 + percent / 100;
+  if (!Number.isFinite(denom) || denom === 0) {
+    return null;
+  }
+  const base = effectivePrice / denom;
+  return Number.isFinite(base) && base !== 0 ? base : null;
 };
 
 function buildBarData(rows: PositionRow[]): BarDatum[] {
@@ -47,11 +80,46 @@ function buildBarData(rows: PositionRow[]): BarDatum[] {
       const symbol = row.position.symbol;
       const longName = row.position.long_name || null;
       const label = symbol || row.position.id || longName || "Position";
+      const isClosed = row.isClosed;
+      const qty = row.quantity;
+      const eff = row.effectivePrice;
+
+      const intradayValue = isClosed ? null : row.intradayAbs;
+      const intradayPercent = isClosed ? null : row.intradayPercent;
+
+      const tenDayPercent = isClosed
+        ? null
+        : row.tenDayPercent ?? toFinite(row.position.change_10d_pct);
+      let tenDayBase = isClosed ? null : toFinite(row.position.price_10d);
+      if (!isClosed && (tenDayBase === null || tenDayBase === 0) && tenDayPercent !== null) {
+        tenDayBase = impliedBaseFromPercent(eff, tenDayPercent);
+      }
+      const tenDayValue = !isClosed && tenDayBase !== null ? (eff - tenDayBase) * qty : null;
+
+      const oneYearPercent = isClosed
+        ? null
+        : row.oneYearPercent ?? toFinite(row.position.change_1y_pct);
+      let oneYearBase = isClosed ? null : toFinite(row.position.price_1y);
+      if (
+        !isClosed &&
+        (oneYearBase === null || oneYearBase === 0) &&
+        oneYearPercent !== null
+      ) {
+        oneYearBase = impliedBaseFromPercent(eff, oneYearPercent);
+      }
+      const oneYearValue = !isClosed && oneYearBase !== null ? (eff - oneYearBase) * qty : null;
+
       return {
         label,
         fullName: longName,
         pnlValue: row.pnlValue,
         pnlPercent: row.pnlPercent,
+        tenDayValue,
+        tenDayPercent,
+        oneYearValue,
+        oneYearPercent,
+        intradayValue,
+        intradayPercent,
         currency: row.position.currency,
         isClosed: row.isClosed,
       };
@@ -61,25 +129,77 @@ function buildBarData(rows: PositionRow[]): BarDatum[] {
 
 export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
   const [metric, setMetric] = useState<PerfMetric>(() => loadMetric());
+  const [period, setPeriod] = useState<PerfPeriod>(() => loadPeriod());
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, metric);
+      window.localStorage.setItem(METRIC_STORAGE_KEY, metric);
     } catch {
       // Ignore storage failures.
     }
   }, [metric]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PERIOD_STORAGE_KEY, period);
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [period]);
+
   const rawData = useMemo(() => buildBarData(rows), [rows]);
+
+  const periodLabel = useMemo(() => {
+    switch (period) {
+      case "intraday":
+        return "Intraday";
+      case "10d":
+        return "10D";
+      case "1y":
+        return "1Y";
+      case "all":
+      default:
+        return "All time";
+    }
+  }, [period]);
+
+  const getMetricValue = useCallback(
+    (datum: BarDatum): number | null => {
+      if (period === "all") {
+        return metric === "percent" ? datum.pnlPercent : datum.pnlValue;
+      }
+      if (period === "1y") {
+        return metric === "percent" ? datum.oneYearPercent : datum.oneYearValue;
+      }
+      if (period === "10d") {
+        return metric === "percent" ? datum.tenDayPercent : datum.tenDayValue;
+      }
+      return metric === "percent" ? datum.intradayPercent : datum.intradayValue;
+    },
+    [metric, period],
+  );
+
+  type PreparedDatum = BarDatum & { chartValue: number; metricValue: number | null };
+
   const data = useMemo(() => {
-    const out = [...rawData];
-    out.sort((a, b) => {
-      const av = metric === "percent" ? a.pnlPercent : a.pnlValue;
-      const bv = metric === "percent" ? b.pnlPercent : b.pnlValue;
-      return av - bv;
+    const out: PreparedDatum[] = rawData.map((datum) => {
+      const metricValue = getMetricValue(datum);
+      const chartValue = metricValue === null || Number.isNaN(metricValue) ? 0 : metricValue;
+      return { ...datum, chartValue, metricValue };
     });
+
+    out.sort((a, b) => {
+      const aMissing = a.metricValue === null || Number.isNaN(a.metricValue);
+      const bMissing = b.metricValue === null || Number.isNaN(b.metricValue);
+      if (aMissing !== bMissing) {
+        return aMissing ? 1 : -1;
+      }
+      return a.chartValue - b.chartValue;
+    });
+
     return out;
-  }, [rawData, metric]);
+  }, [getMetricValue, rawData]);
+
   const currencyHint = useMemo(
     () => data.find((entry) => entry.currency)?.currency ?? data[0]?.currency ?? "USD",
     [data],
@@ -98,14 +218,48 @@ export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
     <div className="card">
       <div className="section-header">
         <h2>Positions Performance (increasing)</h2>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className={period === "all" ? "btn" : "btn secondary"}
+              onClick={() => setPeriod("all")}
+              aria-pressed={period === "all"}
+            >
+              All time
+            </button>
+            <button
+              type="button"
+              className={period === "1y" ? "btn" : "btn secondary"}
+              onClick={() => setPeriod("1y")}
+              aria-pressed={period === "1y"}
+            >
+              1Y
+            </button>
+            <button
+              type="button"
+              className={period === "10d" ? "btn" : "btn secondary"}
+              onClick={() => setPeriod("10d")}
+              aria-pressed={period === "10d"}
+            >
+              10D
+            </button>
+            <button
+              type="button"
+              className={period === "intraday" ? "btn" : "btn secondary"}
+              onClick={() => setPeriod("intraday")}
+              aria-pressed={period === "intraday"}
+            >
+              Intraday
+            </button>
+          </div>
           <button
             type="button"
             className={metric === "value" ? "btn" : "btn secondary"}
             onClick={() => setMetric("value")}
             aria-pressed={metric === "value"}
           >
-            P/L
+            Value
           </button>
           <button
             type="button"
@@ -113,7 +267,7 @@ export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
             onClick={() => setMetric("percent")}
             aria-pressed={metric === "percent"}
           >
-            P/L %
+            %
           </button>
         </div>
       </div>
@@ -164,14 +318,44 @@ export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
                       return null;
                     }
                     const title = datum.fullName ? `${datum.label} — ${datum.fullName}` : datum.label;
-                    const valueLine =
-                      metric === "percent"
-                        ? `P/L %: ${formatSignedPercent(datum.pnlPercent)}`
-                        : `P/L: ${formatCurrency(datum.pnlValue, datum.currency ?? currencyHint)}`;
-                    const otherLine =
-                      metric === "percent"
-                        ? `P/L: ${formatCurrency(datum.pnlValue, datum.currency ?? currencyHint)}`
-                        : `P/L %: ${formatSignedPercent(datum.pnlPercent)}`;
+
+                    const valueForPeriod =
+                      period === "all"
+                        ? datum.pnlValue
+                        : period === "1y"
+                          ? datum.oneYearValue
+                          : period === "10d"
+                            ? datum.tenDayValue
+                            : datum.intradayValue;
+
+                    const pctForPeriod =
+                      period === "all"
+                        ? datum.pnlPercent
+                        : period === "1y"
+                          ? datum.oneYearPercent
+                          : period === "10d"
+                            ? datum.tenDayPercent
+                            : datum.intradayPercent;
+
+                    const valueFormatted =
+                      valueForPeriod === null || Number.isNaN(valueForPeriod)
+                        ? "—"
+                        : formatCurrency(valueForPeriod, datum.currency ?? currencyHint);
+                    const pctFormatted =
+                      pctForPeriod === null || Number.isNaN(pctForPeriod)
+                        ? "—"
+                        : formatSignedPercent(pctForPeriod);
+
+                    const valueLabel =
+                      period === "intraday"
+                        ? "Intraday"
+                        : period === "10d"
+                          ? "10D"
+                          : period === "1y"
+                            ? "1Y"
+                            : "P/L";
+
+                    const pctLabel = `${valueLabel} %`;
                     return (
                       <div
                         style={{
@@ -185,9 +369,9 @@ export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
                       >
                         <div style={{ fontWeight: 700, color: "#0f172a" }}>{title}</div>
                         <div style={{ marginTop: 6 }}>
-                          {valueLine}
+                          {valueLabel}: {valueFormatted}{" "}
                           <span className="muted" style={{ marginLeft: 6 }}>
-                            ({otherLine})
+                            ({pctLabel}: {pctFormatted})
                           </span>
                         </div>
                         {datum.isClosed && (
@@ -200,7 +384,7 @@ export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
                   }}
                 />
                 <Bar
-                  dataKey={metric === "percent" ? "pnlPercent" : "pnlValue"}
+                  dataKey="chartValue"
                   barSize={14}
                   isAnimationActive={false}
                 >
@@ -208,9 +392,11 @@ export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
                     <Cell
                       key={entry.label}
                       fill={
-                        (metric === "percent" ? entry.pnlPercent : entry.pnlValue) >= 0
-                          ? POSITIVE
-                          : NEGATIVE
+                        entry.metricValue === null || Number.isNaN(entry.metricValue)
+                          ? "#e5e7eb"
+                          : entry.metricValue >= 0
+                            ? POSITIVE
+                            : NEGATIVE
                       }
                       opacity={entry.isClosed ? 0.7 : 1}
                     />
@@ -220,7 +406,7 @@ export function PositionsPnLBar({ rows }: PositionsPnLBarProps) {
             </ResponsiveContainer>
           </div>
           <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
-            Sorted from lowest to highest {metric === "percent" ? "P/L %" : "P/L"} (tooltip shows both).
+            Sorted from lowest to highest {periodLabel} {metric === "percent" ? "%" : "Value"} (tooltip shows value and %).
           </p>
         </>
       )}
