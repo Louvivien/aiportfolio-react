@@ -35,6 +35,8 @@ export interface PortfolioTotals {
   portfolioIntradayPct: number;
   tenDayAbsolute: number;
   tenDayPctTotal: number;
+  oneYearAbsolute: number;
+  oneYearPctTotal: number;
   realizedPlClosed: number;
 }
 
@@ -74,6 +76,7 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
   let totalMarketValueOpen = 0;
   let intradayAbsSum = 0;
   let totalMarketValueOpen10d = 0;
+  let totalMarketValueOpen1y = 0;
   let totalInvestOpen = 0;
   let totalInvestClosed = 0;
   let realizedPlClosed = 0;
@@ -149,12 +152,14 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
     }
 
     let oneYearPercent: number | null = null;
+    let price1yValue: number | null = null;
     if (!isClosed) {
       const rawPrice1y =
         position.price_1y !== null && position.price_1y !== undefined
           ? toNumber(position.price_1y, NaN)
           : NaN;
       if (!Number.isNaN(rawPrice1y) && rawPrice1y !== 0) {
+        price1yValue = rawPrice1y;
         oneYearPercent = ((effectivePrice - rawPrice1y) / rawPrice1y) * 100;
       }
 
@@ -166,6 +171,12 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
         const pct = toNumber(position.change_1y_pct, NaN);
         if (!Number.isNaN(pct)) {
           oneYearPercent = pct;
+          if (price1yValue === null || Number.isNaN(price1yValue) || price1yValue === 0) {
+            const implied = effectivePrice / (1 + pct / 100);
+            if (Number.isFinite(implied) && implied !== 0) {
+              price1yValue = implied;
+            }
+          }
         }
       }
 
@@ -205,6 +216,9 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
       }
       if (price10dValue !== null && !Number.isNaN(price10dValue)) {
         totalMarketValueOpen10d += quantity * price10dValue;
+      }
+      if (price1yValue !== null && !Number.isNaN(price1yValue)) {
+        totalMarketValueOpen1y += quantity * price1yValue;
       }
     } else {
       totalInvestClosed += invested;
@@ -247,6 +261,11 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
     ? (tenDayAbsolute / totalMarketValueOpen10d) * 100
     : 0;
 
+  const oneYearAbsolute = totalMarketValueOpen - totalMarketValueOpen1y;
+  const oneYearPctTotal = totalMarketValueOpen1y
+    ? (oneYearAbsolute / totalMarketValueOpen1y) * 100
+    : 0;
+
   return {
     rows,
     ranges: { pnlRange, intradayRange, tenDayRange, oneYearRange },
@@ -262,6 +281,8 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
       portfolioIntradayPct,
       tenDayAbsolute,
       tenDayPctTotal,
+      oneYearAbsolute,
+      oneYearPctTotal,
       realizedPlClosed,
     },
   };

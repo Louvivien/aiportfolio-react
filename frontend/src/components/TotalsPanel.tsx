@@ -12,6 +12,7 @@ const NEGATIVE_BADGE = "#d93025";
 export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
   const intradayColor = totals.portfolioIntradayPct >= 0 ? POSITIVE_BADGE : NEGATIVE_BADGE;
   const tenDayColor = totals.tenDayPctTotal >= 0 ? POSITIVE_BADGE : NEGATIVE_BADGE;
+  const oneYearColor = totals.oneYearPctTotal >= 0 ? POSITIVE_BADGE : NEGATIVE_BADGE;
 
   return (
     <div className="card">
@@ -60,6 +61,13 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
         >
           10D (Open): {formatCurrency(totals.tenDayAbsolute, currency)} (
           {formatSignedPercent(totals.tenDayPctTotal)})
+        </span>
+        <span
+          className="badge"
+          style={{ background: oneYearColor, color: "#fff", fontSize: 14, padding: "6px 12px" }}
+        >
+          1Y (Open): {formatCurrency(totals.oneYearAbsolute, currency)} (
+          {formatSignedPercent(totals.oneYearPctTotal)})
         </span>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AddPositionForm from "./components/AddPositionForm";
 import EditPositionModal from "./components/EditPositionModal";
+import ExportPanel from "./components/ExportPanel";
 import PositionsTable, { SortConfig, SortableColumn } from "./components/PositionsTable";
 import TagSummary from "./components/TagSummary";
 import TimeseriesPanel from "./components/TimeseriesPanel";
@@ -312,6 +313,13 @@ function App() {
       />
 
       <TotalsPanel totals={portfolioTotals.totals} />
+
+      <ExportPanel
+        positions={portfolioTotals.rows}
+        rawPositions={positions}
+        tagSummary={tagSummary}
+        totals={portfolioTotals.totals}
+      />
 
       {loading ? (
         <div className="card">
