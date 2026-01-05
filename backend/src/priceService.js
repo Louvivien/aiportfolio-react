@@ -1,31 +1,619 @@
 import yahooFinance from "yahoo-finance2";
 
+const DEFAULT_TIMEOUT_MS = 10_000;
+const PRICE_CACHE_TTL_MS = 60_000;
+const HISTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const RESOLUTION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_CONCURRENCY = 4;
+
+const USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+const priceCache = new Map();
+const historyCache = new Map();
+const resolutionCache = new Map();
+let yahooBlockedUntilMs = 0;
+
+function nowMs() {
+  return Date.now();
+}
+
+function cacheGet(map, key, ttlMs) {
+  const entry = map.get(key);
+  if (!entry) {
+    return null;
+  }
+  if (ttlMs > 0 && nowMs() - entry.ts > ttlMs) {
+    map.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function cacheSet(map, key, value) {
+  map.set(key, { ts: nowMs(), value });
+}
+
 function safeNumber(value) {
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 }
 
-function extractPrice10dFromHistory(entries = []) {
-  const closes = entries
-    .map((entry) => safeNumber(entry?.adjClose ?? entry?.close))
-    .filter((value) => value !== null);
-  if (!closes.length) {
+function normaliseNumericString(value) {
+  if (value === null || value === undefined) {
     return null;
   }
-  if (closes.length >= 11) {
-    return closes[closes.length - 11];
+  const cleaned = String(value)
+    .trim()
+    .replace(/\u202f/g, " ")
+    .replace(/\s+/g, "")
+    .replace(",", ".");
+  if (!cleaned) {
+    return null;
   }
-  return closes[0];
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
 }
 
-function extractPrice1yFromHistory(entries = []) {
-  const closes = entries
-    .map((entry) => safeNumber(entry?.adjClose ?? entry?.close))
-    .filter((value) => value !== null);
-  if (!closes.length) {
+function extractPrice10dFromCloses(closes = []) {
+  const values = closes.filter((value) => Number.isFinite(value));
+  if (!values.length) {
     return null;
   }
-  return closes[0];
+  if (values.length >= 11) {
+    return values[values.length - 11];
+  }
+  return values[0];
+}
+
+function extractPrice1yFromCloses(closes = []) {
+  const values = closes.filter((value) => Number.isFinite(value));
+  if (!values.length) {
+    return null;
+  }
+  return values[0];
+}
+
+async function fetchWithTimeout(url, { timeoutMs = DEFAULT_TIMEOUT_MS, ...options } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "User-Agent": USER_AGENT,
+        Accept: "application/json,text/plain,*/*",
+        ...(options.headers || {}),
+      },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchJson(url, options) {
+  const res = await fetchWithTimeout(url, options);
+  const text = await res.text();
+  if (!res.ok) {
+    const error = new Error(`HTTP ${res.status} fetching ${url}`);
+    error.status = res.status;
+    error.body = text;
+    throw error;
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const parseError = new Error(`Invalid JSON from ${url}`);
+    parseError.cause = error;
+    parseError.body = text;
+    throw parseError;
+  }
+}
+
+async function fetchText(url, options) {
+  const res = await fetchWithTimeout(url, options);
+  const text = await res.text();
+  if (!res.ok) {
+    const error = new Error(`HTTP ${res.status} fetching ${url}`);
+    error.status = res.status;
+    error.body = text;
+    throw error;
+  }
+  return text;
+}
+
+function inferCurrencyFromSymbolId(symbolId) {
+  if (!symbolId) {
+    return null;
+  }
+  const id = String(symbolId);
+  if (/^(1rP|1rT|1z|2z|5p)/.test(id)) {
+    return "EUR";
+  }
+  if (/^0P/i.test(id)) {
+    return "EUR";
+  }
+  return "USD";
+}
+
+function boursoramaCandidates(symbol) {
+  const upper = String(symbol || "").toUpperCase().trim();
+  if (!upper) {
+    return [];
+  }
+  const parts = upper.split(".");
+  const base = parts[0];
+  const suffix = parts.length > 1 ? parts[parts.length - 1] : null;
+
+  if (suffix === "PA") {
+    return [`1rP${base}`, `1rT${base}`];
+  }
+  if (suffix === "DE") {
+    return [`1z${base}`];
+  }
+  if (suffix === "F" && /^0P/.test(base)) {
+    return [];
+  }
+  if (parts.length === 1) {
+    return [upper];
+  }
+  return [base];
+}
+
+async function fetchBoursoramaQuote(symbolId) {
+  const cacheKey = `boursorama:quote:${symbolId}`;
+  const cached = cacheGet(historyCache, cacheKey, PRICE_CACHE_TTL_MS);
+  if (cached) {
+    return cached;
+  }
+  const url = `https://www.boursorama.com/bourse/action/graph/ws/GetTicksEOD?symbol=${encodeURIComponent(
+    symbolId,
+  )}&length=5`;
+  const data = await fetchJson(url);
+  if (!data || Array.isArray(data) || !data.d) {
+    return null;
+  }
+  const root = data.d;
+  const current = safeNumber(root?.qd?.c);
+  const previous = safeNumber(root?.qv?.c);
+  const change = current !== null && previous !== null ? current - previous : null;
+  const changePct = change !== null && previous ? (change / previous) * 100 : null;
+  const quote = {
+    current,
+    previous_close: previous,
+    change,
+    change_pct: changePct,
+    long_name: root?.Name ?? null,
+    currency: inferCurrencyFromSymbolId(symbolId),
+  };
+  cacheSet(historyCache, cacheKey, quote);
+  return quote;
+}
+
+function boursoramaDateFromDays(days) {
+  if (!Number.isFinite(days) || days <= 0) {
+    return null;
+  }
+  const date = new Date(days * 86400000);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+async function fetchBoursoramaDailyHistory(symbolId, { period1, period2 }) {
+  const start = period1 instanceof Date ? period1 : null;
+  const end = period2 instanceof Date ? period2 : null;
+  if (!start || !end) {
+    return [];
+  }
+  const diffDays = Math.ceil((end.getTime() - start.getTime()) / 86400000);
+  const length = Math.max(365, diffDays);
+  const cacheKey = `boursorama:history:${symbolId}:${length}`;
+  const cached = cacheGet(historyCache, cacheKey, HISTORY_CACHE_TTL_MS);
+  const raw =
+    cached ??
+    (await fetchJson(
+      `https://www.boursorama.com/bourse/action/graph/ws/GetTicksEOD?symbol=${encodeURIComponent(
+        symbolId,
+      )}&length=${length}`,
+    ));
+  if (!cached) {
+    cacheSet(historyCache, cacheKey, raw);
+  }
+
+  if (!raw || Array.isArray(raw) || !raw.d) {
+    return [];
+  }
+  const quoteTab = raw.d?.QuoteTab;
+  if (!Array.isArray(quoteTab)) {
+    return [];
+  }
+
+  const points = [];
+  for (const entry of quoteTab) {
+    const close = safeNumber(entry?.c);
+    if (close === null) {
+      continue;
+    }
+    const dayValue = safeNumber(entry?.d);
+    if (dayValue === null) {
+      continue;
+    }
+    // Daily responses encode days since epoch (~20000). Intraday responses encode yymmddhhmm or 0.
+    if (dayValue > 1_000_000) {
+      continue;
+    }
+    const date = boursoramaDateFromDays(dayValue);
+    if (!date) {
+      continue;
+    }
+    if (date < start || date > end) {
+      continue;
+    }
+    points.push({ date: date.toISOString().slice(0, 10), close });
+  }
+
+  points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return points;
+}
+
+function inferCurrencyFromStooq(symbol) {
+  const upper = String(symbol || "").toUpperCase();
+  if (upper.endsWith(".US")) {
+    return "USD";
+  }
+  if (upper.endsWith(".UK")) {
+    return "GBP";
+  }
+  if (upper.endsWith(".DE")) {
+    return "EUR";
+  }
+  return null;
+}
+
+function stooqSymbol(symbol) {
+  const upper = String(symbol || "").toUpperCase().trim();
+  if (!upper) {
+    return null;
+  }
+  const parts = upper.split(".");
+  if (parts.length === 1) {
+    return `${upper}.US`.toLowerCase();
+  }
+  const base = parts[0];
+  const suffix = parts[parts.length - 1];
+  if (suffix === "L") {
+    return `${base}.UK`.toLowerCase();
+  }
+  if (suffix === "UK" || suffix === "US" || suffix === "DE") {
+    return `${base}.${suffix}`.toLowerCase();
+  }
+  return null;
+}
+
+function parseStooqCsv(text) {
+  if (!text) {
+    return [];
+  }
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) {
+    return [];
+  }
+  const header = lines[0];
+  const delimiter = header.includes(";") ? ";" : ",";
+  const headers = header.split(delimiter).map((h) => h.trim().toLowerCase());
+  const dateIndex = headers.indexOf("date");
+  const closeIndex = headers.indexOf("close");
+  if (dateIndex === -1 || closeIndex === -1) {
+    return [];
+  }
+  const points = [];
+  for (const line of lines.slice(1)) {
+    const parts = line.split(delimiter);
+    if (parts.length <= Math.max(dateIndex, closeIndex)) {
+      continue;
+    }
+    const date = parts[dateIndex]?.trim();
+    const close = safeNumber(parts[closeIndex]);
+    if (!date || close === null) {
+      continue;
+    }
+    points.push({ date, close });
+  }
+  points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return points;
+}
+
+function toYYYYMMDD(date) {
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+async function fetchStooqHistory(symbol, { period1, period2 }) {
+  const start = period1 instanceof Date ? period1 : null;
+  const end = period2 instanceof Date ? period2 : null;
+  if (!start || !end) {
+    return [];
+  }
+  const cacheKey = `stooq:history:${symbol}:${toYYYYMMDD(start)}:${toYYYYMMDD(end)}`;
+  const cached = cacheGet(historyCache, cacheKey, HISTORY_CACHE_TTL_MS);
+  if (cached) {
+    return cached;
+  }
+  const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&d1=${toYYYYMMDD(
+    start,
+  )}&d2=${toYYYYMMDD(end)}&i=d`;
+  const text = await fetchText(url, { headers: { Accept: "text/csv,*/*" } });
+  const parsed = parseStooqCsv(text);
+  cacheSet(historyCache, cacheKey, parsed);
+  return parsed;
+}
+
+async function fetchYahooFallback(symbol) {
+  if (!symbol) {
+    return null;
+  }
+  if (nowMs() < yahooBlockedUntilMs) {
+    return null;
+  }
+  const upper = symbol.toUpperCase();
+  try {
+    const quote = await yahooFinance.quote(upper);
+
+    const current =
+      safeNumber(quote?.regularMarketPrice) ?? safeNumber(quote?.postMarketPrice);
+    const previous =
+      safeNumber(quote?.regularMarketPreviousClose) ??
+      safeNumber(quote?.postMarketPreviousClose);
+    const change =
+      current !== null && previous !== null
+        ? current - previous
+        : safeNumber(quote?.regularMarketChange);
+    const changePct =
+      change !== null && previous
+        ? (change / previous) * 100
+        : safeNumber(quote?.regularMarketChangePercent);
+
+    let price10d = null;
+    let price1y = null;
+    try {
+      const end = new Date();
+      const start = new Date();
+      start.setFullYear(end.getFullYear() - 1);
+      const history = await yahooFinance.historical(upper, {
+        period1: start,
+        period2: end,
+        interval: "1d",
+      });
+      const closes = (history || [])
+        .map((entry) => safeNumber(entry?.adjClose ?? entry?.close))
+        .filter((value) => value !== null);
+      price10d = extractPrice10dFromCloses(closes);
+      price1y = extractPrice1yFromCloses(closes);
+    } catch {
+      price10d = null;
+      price1y = null;
+    }
+
+    const change10dPct =
+      current !== null && price10d !== null && price10d !== 0
+        ? ((current / price10d) - 1) * 100
+        : null;
+    const change1yPct =
+      current !== null && price1y !== null && price1y !== 0
+        ? ((current / price1y) - 1) * 100
+        : null;
+
+    return {
+      current,
+      previous_close: previous,
+      change,
+      change_pct: changePct,
+      long_name: quote?.longName ?? quote?.shortName ?? null,
+      currency: quote?.currency ?? null,
+      price_10d: price10d,
+      change_10d_pct: change10dPct,
+      price_1y: price1y,
+      change_1y_pct: change1yPct,
+    };
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (message.includes("Too Many Requests") || message.includes("429")) {
+      yahooBlockedUntilMs = nowMs() + 15 * 60 * 1000;
+    }
+    return null;
+  }
+}
+
+function emptyPriceEntry() {
+  return {
+    current: 0,
+    previous_close: null,
+    change: null,
+    change_pct: null,
+    long_name: null,
+    currency: null,
+    price_10d: null,
+    change_10d_pct: null,
+    price_1y: null,
+    change_1y_pct: null,
+  };
+}
+
+async function resolveAndFetchPrice(symbol) {
+  const upper = String(symbol || "").toUpperCase().trim();
+  if (!upper) {
+    return emptyPriceEntry();
+  }
+
+  const fundBase = upper.split(".")[0];
+  if (/^0P/.test(fundBase) && upper.endsWith(".F")) {
+    const url = `https://www.boursorama.com/bourse/opcvm/cours/${encodeURIComponent(
+      fundBase,
+    )}/`;
+    try {
+      const html = await fetchText(url, { headers: { Accept: "text/html,*/*" } });
+      const priceMatch = html.match(/data-ist-last[^>]*>([^<]+)</i);
+      const currencyMatch = html.match(/c-faceplate__price-currency[^>]*>\\s*([A-Z]{3})\\s*</i);
+      const current = normaliseNumericString(priceMatch?.[1]) ?? 0;
+      return {
+        current,
+        previous_close: null,
+        change: null,
+        change_pct: null,
+        long_name: null,
+        currency: currencyMatch?.[1] ?? "EUR",
+        price_10d: null,
+        change_10d_pct: null,
+        price_1y: null,
+        change_1y_pct: null,
+      };
+    } catch {
+      return emptyPriceEntry();
+    }
+  }
+
+  const cachedResolution = cacheGet(resolutionCache, upper, RESOLUTION_CACHE_TTL_MS);
+  if (cachedResolution?.provider === "boursorama") {
+    try {
+      const quote = await fetchBoursoramaQuote(cachedResolution.id);
+      if (quote?.current !== null && quote?.current !== undefined) {
+        const history = await fetchBoursoramaDailyHistory(cachedResolution.id, {
+          period1: (() => {
+            const start = new Date();
+            start.setFullYear(start.getFullYear() - 1);
+            return start;
+          })(),
+          period2: new Date(),
+        });
+        const closes = history.map((p) => p.close);
+        const price10d = extractPrice10dFromCloses(closes);
+        const price1y = extractPrice1yFromCloses(closes);
+        const current = safeNumber(quote.current);
+        const change10dPct =
+          current !== null && price10d !== null && price10d !== 0
+            ? ((current / price10d) - 1) * 100
+            : null;
+        const change1yPct =
+          current !== null && price1y !== null && price1y !== 0
+            ? ((current / price1y) - 1) * 100
+            : null;
+        return {
+          ...quote,
+          current: current ?? 0,
+          price_10d: price10d,
+          change_10d_pct: change10dPct,
+          price_1y: price1y,
+          change_1y_pct: change1yPct,
+        };
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const candidates = boursoramaCandidates(upper);
+  for (const candidate of candidates) {
+    try {
+      const quote = await fetchBoursoramaQuote(candidate);
+      if (quote?.current === null || quote?.current === undefined) {
+        continue;
+      }
+      cacheSet(resolutionCache, upper, { provider: "boursorama", id: candidate });
+      const history = await fetchBoursoramaDailyHistory(candidate, {
+        period1: (() => {
+          const start = new Date();
+          start.setFullYear(start.getFullYear() - 1);
+          return start;
+        })(),
+        period2: new Date(),
+      });
+      const closes = history.map((p) => p.close);
+      const price10d = extractPrice10dFromCloses(closes);
+      const price1y = extractPrice1yFromCloses(closes);
+      const current = safeNumber(quote.current) ?? 0;
+      const change10dPct =
+        current !== null && price10d !== null && price10d !== 0
+          ? ((current / price10d) - 1) * 100
+          : null;
+      const change1yPct =
+        current !== null && price1y !== null && price1y !== 0
+          ? ((current / price1y) - 1) * 100
+          : null;
+      return {
+        ...quote,
+        current,
+        price_10d: price10d,
+        change_10d_pct: change10dPct,
+        price_1y: price1y,
+        change_1y_pct: change1yPct,
+      };
+    } catch {
+      // try next candidate
+    }
+  }
+
+  const stooq = stooqSymbol(upper);
+  if (stooq) {
+    try {
+      const end = new Date();
+      const start = new Date();
+      start.setFullYear(end.getFullYear() - 1);
+      const points = await fetchStooqHistory(stooq, { period1: start, period2: end });
+      if (points.length) {
+        cacheSet(resolutionCache, upper, { provider: "stooq", id: stooq });
+        const closes = points.map((p) => p.close);
+        const current = closes.length ? closes[closes.length - 1] : 0;
+        const previous = closes.length >= 2 ? closes[closes.length - 2] : null;
+        const price10d = extractPrice10dFromCloses(closes);
+        const price1y = extractPrice1yFromCloses(closes);
+        const change = previous !== null ? current - previous : null;
+        const changePct = change !== null && previous ? (change / previous) * 100 : null;
+        const change10dPct =
+          current !== null && price10d !== null && price10d !== 0
+            ? ((current / price10d) - 1) * 100
+            : null;
+        const change1yPct =
+          current !== null && price1y !== null && price1y !== 0
+            ? ((current / price1y) - 1) * 100
+            : null;
+        return {
+          current,
+          previous_close: previous,
+          change,
+          change_pct: changePct,
+          long_name: null,
+          currency: inferCurrencyFromStooq(stooq),
+          price_10d: price10d,
+          change_10d_pct: change10dPct,
+          price_1y: price1y,
+          change_1y_pct: change1yPct,
+        };
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const yahoo = await fetchYahooFallback(upper);
+  if (yahoo) {
+    cacheSet(resolutionCache, upper, { provider: "yahoo", id: upper });
+    return { ...yahoo, current: yahoo.current ?? 0 };
+  }
+
+  return emptyPriceEntry();
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const out = new Array(items.length);
+  let index = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const current = index;
+      index += 1;
+      out[current] = await mapper(items[current], current);
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 export async function getPrices(symbols) {
@@ -33,82 +621,39 @@ export async function getPrices(symbols) {
     return {};
   }
 
-  const results = {};
-
-  await Promise.all(
-    symbols.map(async (symbol) => {
-      const upper = symbol.toUpperCase();
-      try {
-        const quote = await yahooFinance.quote(upper);
-
-        const current =
-          safeNumber(quote?.regularMarketPrice) ?? safeNumber(quote?.postMarketPrice);
-        const previous =
-          safeNumber(quote?.regularMarketPreviousClose) ??
-          safeNumber(quote?.postMarketPreviousClose);
-        const change =
-          current !== null && previous !== null ? current - previous : safeNumber(quote?.regularMarketChange);
-        const changePct =
-          change !== null && previous
-            ? (change / previous) * 100
-            : safeNumber(quote?.regularMarketChangePercent);
-
-        let price10d = null;
-        let price1y = null;
-        try {
-          const end = new Date();
-          const start = new Date();
-          start.setFullYear(end.getFullYear() - 1);
-          const history = await yahooFinance.historical(upper, {
-            period1: start,
-            period2: end,
-            interval: "1d",
-          });
-          price10d = extractPrice10dFromHistory(history);
-          price1y = extractPrice1yFromHistory(history);
-        } catch (error) {
-          price10d = null;
-          price1y = null;
-        }
-
-        const change10dPct =
-          current !== null && price10d !== null && price10d !== 0
-            ? ((current / price10d) - 1) * 100
-            : null;
-
-        const change1yPct =
-          current !== null && price1y !== null && price1y !== 0
-            ? ((current / price1y) - 1) * 100
-            : null;
-
-        results[upper] = {
-          current,
-          previous_close: previous,
-          change,
-          change_pct: changePct,
-          long_name: quote?.longName ?? quote?.shortName ?? null,
-          currency: quote?.currency ?? null,
-          price_10d: price10d,
-          change_10d_pct: change10dPct,
-          price_1y: price1y,
-          change_1y_pct: change1yPct,
-        };
-      } catch (error) {
-        results[upper] = {
-          current: null,
-          previous_close: null,
-          change: null,
-          change_pct: null,
-          long_name: null,
-          currency: null,
-          price_10d: null,
-          change_10d_pct: null,
-          price_1y: null,
-          change_1y_pct: null,
-        };
-      }
-    }),
+  const unique = Array.from(
+    new Set(
+      symbols
+        .map((symbol) => String(symbol || "").toUpperCase().trim())
+        .filter(Boolean),
+    ),
   );
+
+  const results = {};
+  const toFetch = [];
+  for (const symbol of unique) {
+    const cached = cacheGet(priceCache, symbol, PRICE_CACHE_TTL_MS);
+    if (cached) {
+      results[symbol] = cached;
+    } else {
+      toFetch.push(symbol);
+    }
+  }
+
+  if (toFetch.length) {
+    const fetched = await mapWithConcurrency(toFetch, MAX_CONCURRENCY, async (symbol) => {
+      try {
+        const entry = await resolveAndFetchPrice(symbol);
+        return [symbol, entry];
+      } catch {
+        return [symbol, emptyPriceEntry()];
+      }
+    });
+    for (const [symbol, entry] of fetched) {
+      results[symbol] = entry;
+      cacheSet(priceCache, symbol, entry);
+    }
+  }
 
   return results;
 }
@@ -162,19 +707,72 @@ export async function getPriceHistory(symbols, { period = "6mo", interval = "1d"
   const period1 = resolveStartDate(period);
   const period2 = new Date();
 
-  await Promise.all(
-    symbols.map(async (symbol) => {
-      const upper = symbol.toUpperCase();
-      try {
-        const history = await yahooFinance.historical(upper, {
+  const unique = Array.from(
+    new Set(
+      symbols
+        .map((symbol) => String(symbol || "").toUpperCase().trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const pairs = await mapWithConcurrency(unique, MAX_CONCURRENCY, async (symbol) => {
+    const cacheKey = `history:${symbol}:${period}:${interval}`;
+    const cached = cacheGet(historyCache, cacheKey, HISTORY_CACHE_TTL_MS);
+    if (cached) {
+      return [symbol, cached];
+    }
+
+    const resolved = cacheGet(resolutionCache, symbol, RESOLUTION_CACHE_TTL_MS);
+    try {
+      if (interval === "1d") {
+        if (resolved?.provider === "boursorama") {
+          const points = await fetchBoursoramaDailyHistory(resolved.id, { period1, period2 });
+          cacheSet(historyCache, cacheKey, points);
+          return [symbol, points];
+        }
+        if (resolved?.provider === "stooq") {
+          const points = await fetchStooqHistory(resolved.id, { period1, period2 });
+          cacheSet(historyCache, cacheKey, points);
+          return [symbol, points];
+        }
+      }
+
+      if (interval === "1d") {
+        const candidates = boursoramaCandidates(symbol);
+        for (const candidate of candidates) {
+          try {
+            const points = await fetchBoursoramaDailyHistory(candidate, { period1, period2 });
+            if (points.length) {
+              cacheSet(resolutionCache, symbol, { provider: "boursorama", id: candidate });
+              cacheSet(historyCache, cacheKey, points);
+              return [symbol, points];
+            }
+          } catch {
+            // try next
+          }
+        }
+
+        const stooq = stooqSymbol(symbol);
+        if (stooq) {
+          const points = await fetchStooqHistory(stooq, { period1, period2 });
+          if (points.length) {
+            cacheSet(resolutionCache, symbol, { provider: "stooq", id: stooq });
+            cacheSet(historyCache, cacheKey, points);
+            return [symbol, points];
+          }
+        }
+      }
+
+      if (interval === "1d" && nowMs() >= yahooBlockedUntilMs) {
+        const history = await yahooFinance.historical(symbol, {
           period1,
           period2,
           interval,
         });
 
         if (!history?.length) {
-          out[upper] = [];
-          return;
+          cacheSet(historyCache, cacheKey, []);
+          return [symbol, []];
         }
 
         const points = [];
@@ -201,14 +799,24 @@ export async function getPriceHistory(symbols, { period = "6mo", interval = "1d"
           const date = dateObj.toISOString().slice(0, 10);
           points.push({ date, close });
         }
-
         points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-        out[upper] = points;
-      } catch (error) {
-        out[upper] = [];
+        cacheSet(historyCache, cacheKey, points);
+        return [symbol, points];
       }
-    }),
-  );
+    } catch (error) {
+      const message = String(error?.message || "");
+      if (message.includes("Too Many Requests") || message.includes("429")) {
+        yahooBlockedUntilMs = nowMs() + 15 * 60 * 1000;
+      }
+    }
+
+    cacheSet(historyCache, cacheKey, []);
+    return [symbol, []];
+  });
+
+  pairs.forEach(([symbol, points]) => {
+    out[symbol] = points;
+  });
 
   return out;
 }
