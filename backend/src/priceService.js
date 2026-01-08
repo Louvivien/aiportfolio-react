@@ -347,6 +347,59 @@ async function fetchStooqHistory(symbol, { period1, period2 }) {
   return parsed;
 }
 
+async function fetchYahooHistoryPoints(symbol, { period1, period2, interval }) {
+  if (!symbol) {
+    return [];
+  }
+  if (nowMs() < yahooBlockedUntilMs) {
+    return [];
+  }
+  try {
+    const history = await yahooFinance.historical(symbol, {
+      period1,
+      period2,
+      interval,
+    });
+
+    if (!history?.length) {
+      return [];
+    }
+
+    const points = [];
+    for (const entry of history) {
+      const close = safeNumber(
+        entry?.adjClose ??
+          entry?.adjustedClose ??
+          entry?.close ??
+          entry?.AdjClose ??
+          entry?.Close,
+      );
+      if (close === null) {
+        continue;
+      }
+      const dateObj =
+        entry?.date instanceof Date
+          ? entry.date
+          : entry?.Date instanceof Date
+            ? entry.Date
+            : new Date(entry?.date || entry?.Date || entry?.timestamp || entry?.DateTime);
+      if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) {
+        continue;
+      }
+      const date = dateObj.toISOString().slice(0, 10);
+      points.push({ date, close });
+    }
+    points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    return points;
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (message.includes("Too Many Requests") || message.includes("429")) {
+      yahooBlockedUntilMs = nowMs() + 15 * 60 * 1000;
+    }
+    return [];
+  }
+}
+
 async function fetchYahooFallback(symbol) {
   if (!symbol) {
     return null;
@@ -378,13 +431,8 @@ async function fetchYahooFallback(symbol) {
       const end = new Date();
       const start = new Date();
       start.setFullYear(end.getFullYear() - 1);
-      const history = await yahooFinance.historical(upper, {
-        period1: start,
-        period2: end,
-        interval: "1d",
-      });
-      const closes = (history || [])
-        .map((entry) => safeNumber(entry?.adjClose ?? entry?.close))
+      const closes = (await fetchYahooHistoryPoints(upper, { period1: start, period2: end, interval: "1d" }))
+        .map((point) => point.close)
         .filter((value) => value !== null);
       price10d = extractPrice10dFromCloses(closes);
       price1y = extractPrice1yFromCloses(closes);
@@ -472,6 +520,19 @@ async function resolveAndFetchPrice(symbol) {
   }
 
   const cachedResolution = cacheGet(resolutionCache, upper, RESOLUTION_CACHE_TTL_MS);
+  if (cachedResolution?.provider === "yahoo") {
+    const yahoo = await fetchYahooFallback(cachedResolution.id || upper);
+    if (yahoo) {
+      return { ...yahoo, current: yahoo.current ?? 0 };
+    }
+  }
+
+  const yahoo = await fetchYahooFallback(upper);
+  if (yahoo) {
+    cacheSet(resolutionCache, upper, { provider: "yahoo", id: upper });
+    return { ...yahoo, current: yahoo.current ?? 0 };
+  }
+
   if (cachedResolution?.provider === "boursorama") {
     try {
       const quote = await fetchBoursoramaQuote(cachedResolution.id);
@@ -591,12 +652,6 @@ async function resolveAndFetchPrice(symbol) {
     } catch {
       // fall through
     }
-  }
-
-  const yahoo = await fetchYahooFallback(upper);
-  if (yahoo) {
-    cacheSet(resolutionCache, upper, { provider: "yahoo", id: upper });
-    return { ...yahoo, current: yahoo.current ?? 0 };
   }
 
   return emptyPriceEntry();
@@ -725,6 +780,15 @@ export async function getPriceHistory(symbols, { period = "6mo", interval = "1d"
     const resolved = cacheGet(resolutionCache, symbol, RESOLUTION_CACHE_TTL_MS);
     try {
       if (interval === "1d") {
+        const points = await fetchYahooHistoryPoints(symbol, { period1, period2, interval });
+        if (points.length) {
+          cacheSet(resolutionCache, symbol, { provider: "yahoo", id: symbol });
+          cacheSet(historyCache, cacheKey, points);
+          return [symbol, points];
+        }
+      }
+
+      if (interval === "1d") {
         if (resolved?.provider === "boursorama") {
           const points = await fetchBoursoramaDailyHistory(resolved.id, { period1, period2 });
           cacheSet(historyCache, cacheKey, points);
@@ -761,47 +825,6 @@ export async function getPriceHistory(symbols, { period = "6mo", interval = "1d"
             return [symbol, points];
           }
         }
-      }
-
-      if (interval === "1d" && nowMs() >= yahooBlockedUntilMs) {
-        const history = await yahooFinance.historical(symbol, {
-          period1,
-          period2,
-          interval,
-        });
-
-        if (!history?.length) {
-          cacheSet(historyCache, cacheKey, []);
-          return [symbol, []];
-        }
-
-        const points = [];
-        for (const entry of history) {
-          const close = safeNumber(
-            entry?.adjClose ??
-              entry?.adjustedClose ??
-              entry?.close ??
-              entry?.AdjClose ??
-              entry?.Close,
-          );
-          if (close === null) {
-            continue;
-          }
-          const dateObj =
-            entry?.date instanceof Date
-              ? entry.date
-              : entry?.Date instanceof Date
-                ? entry.Date
-                : new Date(entry?.date || entry?.Date || entry?.timestamp || entry?.DateTime);
-          if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) {
-            continue;
-          }
-          const date = dateObj.toISOString().slice(0, 10);
-          points.push({ date, close });
-        }
-        points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-        cacheSet(historyCache, cacheKey, points);
-        return [symbol, points];
       }
     } catch (error) {
       const message = String(error?.message || "");
