@@ -30,6 +30,25 @@ const describeForumError = (error: unknown): string => {
   return "Impossible de charger les messages.";
 };
 
+type PositionsColumns = {
+  symbol: boolean;
+  name: boolean;
+  purchaseDate: boolean;
+  quantity: boolean;
+  cost: boolean;
+  current: boolean;
+  invest: boolean;
+  value: boolean;
+  pnl: boolean;
+  pnlPct: boolean;
+  intradayAbs: boolean;
+  intradayPct: boolean;
+  tenDayPct: boolean;
+  oneYearPct: boolean;
+  tags: boolean;
+  actions: boolean;
+};
+
 export type SortableColumn =
   | "symbol"
   | "name"
@@ -68,6 +87,46 @@ interface PositionsTableProps {
   mutating?: boolean;
   deletingId?: string | null;
 }
+
+const POSITIONS_COLUMNS_STORAGE_KEY = "aiportfolio:positionsColumns";
+
+const DEFAULT_COLUMNS: PositionsColumns = {
+  symbol: true,
+  name: true,
+  purchaseDate: true,
+  quantity: true,
+  cost: true,
+  current: true,
+  invest: true,
+  value: true,
+  pnl: true,
+  pnlPct: true,
+  intradayAbs: true,
+  intradayPct: true,
+  tenDayPct: true,
+  oneYearPct: true,
+  tags: true,
+  actions: true,
+};
+
+const loadColumns = (): PositionsColumns => {
+  if (typeof window === "undefined") {
+    return DEFAULT_COLUMNS;
+  }
+  try {
+    const raw = window.localStorage.getItem(POSITIONS_COLUMNS_STORAGE_KEY);
+    if (!raw) {
+      return DEFAULT_COLUMNS;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return DEFAULT_COLUMNS;
+    }
+    return { ...DEFAULT_COLUMNS, ...parsed };
+  } catch {
+    return DEFAULT_COLUMNS;
+  }
+};
 
 const columnMeta: { key: SortableColumn; label: string }[] = [
   { key: "symbol", label: "Symbol" },
@@ -138,6 +197,25 @@ export function PositionsTable({
   const [forumPreviewMap, setForumPreviewMap] = useState<ForumPreviewMap>({});
   const [activeForumId, setActiveForumId] = useState<string | null>(null);
   const hideForumTimerRef = useRef<number | null>(null);
+  const [columns, setColumns] = useState<PositionsColumns>(() => loadColumns());
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(POSITIONS_COLUMNS_STORAGE_KEY, JSON.stringify(columns));
+    } catch {
+      // Ignore storage failures (private mode, quotas, etc.)
+    }
+  }, [columns]);
+
+  const toggleColumn = (key: keyof PositionsColumns) => {
+    setColumns((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (sortConfig.column === key && prev[key]) {
+        onResetSort();
+      }
+      return next;
+    });
+  };
 
   const clearHideTimer = useCallback(() => {
     if (hideForumTimerRef.current !== null) {
@@ -305,25 +383,50 @@ export function PositionsTable({
           </label>
         </div>
       </div>
+      <details style={{ marginBottom: 12 }}>
+        <summary style={{ cursor: "pointer", fontWeight: 600 }}>Columns</summary>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
+          {columnMeta.map(({ key, label }) => (
+            <label className="checkbox-row" key={key}>
+              <input
+                type="checkbox"
+                checked={columns[key]}
+                onChange={() => toggleColumn(key)}
+              />
+              {label}
+            </label>
+          ))}
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={columns.actions}
+              onChange={() => toggleColumn("actions")}
+            />
+            Actions
+          </label>
+        </div>
+      </details>
       <div style={{ overflowX: "auto" }}>
         <table className="table">
           <thead>
             <tr>
-              {columnMeta.map(({ key, label }) => {
-                const active = sortConfig.column === key;
-                return (
-                  <th key={key}>
-                    <button
-                      type="button"
-                      className="table-header-btn"
-                      onClick={() => onChangeSort(key)}
-                    >
-                      {formatHeader(label, active, sortConfig.direction)}
-                    </button>
-                  </th>
-                );
-              })}
-              <th>Actions</th>
+              {columnMeta
+                .filter(({ key }) => columns[key])
+                .map(({ key, label }) => {
+                  const active = sortConfig.column === key;
+                  return (
+                    <th key={key}>
+                      <button
+                        type="button"
+                        className="table-header-btn"
+                        onClick={() => onChangeSort(key)}
+                      >
+                        {formatHeader(label, active, sortConfig.direction)}
+                      </button>
+                    </th>
+                  );
+                })}
+              {columns.actions && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -378,106 +481,126 @@ export function PositionsTable({
 
               return (
                 <tr key={position.id ?? position.symbol}>
-                  <td>
-                    <a href={yahooUrl} target="_blank" rel="noreferrer" className="ticker-link">
-                      {position.symbol}
-                    </a>
-                    {showForumLink && (
-                      <div className="forum-link-wrapper" {...(forumHandlers ?? {})}>
-                        <a
-                          href={boursoramaUrl!}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="ticker-link forum-link-label"
-                        >
-                          forum
-                        </a>
-                        {isForumActive && position.id && (
-                          <div
-                            className="forum-popover"
-                            onMouseEnter={() => handleForumMouseEnter(position)}
-                            onMouseLeave={() => handleForumMouseLeave(position.id)}
+                  {columns.symbol && (
+                    <td>
+                      <a href={yahooUrl} target="_blank" rel="noreferrer" className="ticker-link">
+                        {position.symbol}
+                      </a>
+                      {showForumLink && (
+                        <div className="forum-link-wrapper" {...(forumHandlers ?? {})}>
+                          <a
+                            href={boursoramaUrl!}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="ticker-link forum-link-label"
                           >
-                            {renderForumPreview(forumPreviewState)}
-                          </div>
-                        )}
+                            forum
+                          </a>
+                          {isForumActive && position.id && (
+                            <div
+                              className="forum-popover"
+                              onMouseEnter={() => handleForumMouseEnter(position)}
+                              onMouseLeave={() => handleForumMouseLeave(position.id)}
+                            >
+                              {renderForumPreview(forumPreviewState)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {closed && <span className="badge closed">Closed</span>}
+                    </td>
+                  )}
+                  {columns.name && <td>{position.long_name || "—"}</td>}
+                  {columns.purchaseDate && (
+                    <td>{formatDate(position.purchase_date ?? position.created_at ?? null)}</td>
+                  )}
+                  {columns.quantity && <td>{formatQuantity(row.quantity)}</td>}
+                  {columns.cost && <td>{formatCurrency(row.cost, currency)}</td>}
+                  {columns.current && <td>{formatCurrency(row.effectivePrice, currency)}</td>}
+                  {columns.invest && <td>{formatCurrency(row.invested, currency)}</td>}
+                  {columns.value && (
+                    <td>{closed ? "—" : formatCurrency(row.currentValue, currency)}</td>
+                  )}
+                  {columns.pnl && (
+                    <td>
+                      <span style={pnlStyle}>{formatCurrency(row.pnlValue, currency)}</span>
+                    </td>
+                  )}
+                  {columns.pnlPct && <td>{formatSignedPercent(row.pnlPercent)}</td>}
+                  {columns.intradayAbs && (
+                    <td
+                      className={classNames({
+                        "pos-green": (row.intradayAbs ?? 0) > 0,
+                        "pos-red": (row.intradayAbs ?? 0) < 0,
+                      })}
+                    >
+                      {row.intradayAbs === null
+                        ? "—"
+                        : formatCurrency(row.intradayAbs, currency)}
+                    </td>
+                  )}
+                  {columns.intradayPct && (
+                    <td>
+                      {row.intradayPercent === null ? (
+                        "—"
+                      ) : (
+                        <span style={intradayStyle}>{formatNumber(row.intradayPercent)}%</span>
+                      )}
+                    </td>
+                  )}
+                  {columns.tenDayPct && (
+                    <td>
+                      {row.tenDayPercent === null ? (
+                        "—"
+                      ) : (
+                        <span style={tenDayStyle}>{formatNumber(row.tenDayPercent)}%</span>
+                      )}
+                    </td>
+                  )}
+                  {columns.oneYearPct && (
+                    <td>
+                      {row.oneYearPercent === null ? (
+                        "—"
+                      ) : (
+                        <span style={oneYearStyle}>{formatNumber(row.oneYearPercent)}%</span>
+                      )}
+                    </td>
+                  )}
+                  {columns.tags && (
+                    <td>
+                      {position.tags.map((tag) => (
+                        <span key={tag} className="tag-chip">
+                          {tag}
+                        </span>
+                      ))}
+                    </td>
+                  )}
+                  {columns.actions && (
+                    <td>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          onClick={() => onEdit(position)}
+                          disabled={mutating}
+                          title={`Edit ${position.symbol}`}
+                          aria-label={`Edit ${position.symbol}`}
+                        >
+                          <span aria-hidden="true">✏️</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          onClick={() => onDelete(position)}
+                          disabled={mutating || deletingId === position.id}
+                          title={`Delete ${position.symbol}`}
+                          aria-label={`Delete ${position.symbol}`}
+                        >
+                          <span aria-hidden="true">🗑️</span>
+                        </button>
                       </div>
-                    )}
-                    {closed && <span className="badge closed">Closed</span>}
-                  </td>
-              <td>{position.long_name || "—"}</td>
-              <td>{formatDate(position.purchase_date ?? position.created_at ?? null)}</td>
-              <td>{formatQuantity(row.quantity)}</td>
-                  <td>{formatCurrency(row.cost, currency)}</td>
-                  <td>{formatCurrency(row.effectivePrice, currency)}</td>
-                  <td>{formatCurrency(row.invested, currency)}</td>
-                  <td>{closed ? "—" : formatCurrency(row.currentValue, currency)}</td>
-                  <td>
-                    <span style={pnlStyle}>{formatCurrency(row.pnlValue, currency)}</span>
-                  </td>
-                  <td>{formatSignedPercent(row.pnlPercent)}</td>
-                  <td
-                    className={classNames({
-                      "pos-green": (row.intradayAbs ?? 0) > 0,
-                      "pos-red": (row.intradayAbs ?? 0) < 0,
-                    })}
-                  >
-                    {row.intradayAbs === null
-                      ? "—"
-                      : formatCurrency(row.intradayAbs, currency)}
-                  </td>
-                  <td>
-                    {row.intradayPercent === null ? (
-                      "—"
-                    ) : (
-                      <span style={intradayStyle}>{formatNumber(row.intradayPercent)}%</span>
-                    )}
-                  </td>
-                  <td>
-                    {row.tenDayPercent === null ? (
-                      "—"
-                    ) : (
-                      <span style={tenDayStyle}>{formatNumber(row.tenDayPercent)}%</span>
-                    )}
-                  </td>
-                  <td>
-                    {row.oneYearPercent === null ? (
-                      "—"
-                    ) : (
-                      <span style={oneYearStyle}>{formatNumber(row.oneYearPercent)}%</span>
-                    )}
-                  </td>
-                  <td>
-                    {position.tags.map((tag) => (
-                      <span key={tag} className="tag-chip">
-                        {tag}
-                      </span>
-                    ))}
-                  </td>
-                  <td>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() => onEdit(position)}
-                        disabled={mutating}
-                        title={`Edit ${position.symbol}`}
-                        aria-label={`Edit ${position.symbol}`}
-                      >
-                        <span aria-hidden="true">✏️</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() => onDelete(position)}
-                        disabled={mutating || deletingId === position.id}
-                        title={`Delete ${position.symbol}`}
-                        aria-label={`Delete ${position.symbol}`}
-                      >
-                        <span aria-hidden="true">🗑️</span>
-                      </button>
-                    </div>
-                  </td>
+                    </td>
+                  )}
                 </tr>
               );
             })}
