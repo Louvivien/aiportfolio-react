@@ -110,15 +110,54 @@ export function evaluateStockIndicator(position: Position): StockIndicatorResult
     "Revenue growth",
   );
 
-  pushStep(
-    "peRatio",
-    "Step 2 — Valuation (P/E)",
-    "P/E < 25",
-    peRatio,
-    (value) => value < 25,
-    INDICATOR_OUTCOMES.likelyOvervalued,
-    "P/E ratio",
-  );
+  const peStepLabel = "Step 2 — Valuation (P/E)";
+  const peCondition = "P/E must be > 0 and < 25";
+  if (stopped) {
+    steps.push({
+      id: "peRatio",
+      label: peStepLabel,
+      condition: peCondition,
+      value: peRatio,
+      status: "skipped",
+      failOutcome: INDICATOR_OUTCOMES.likelyOvervalued,
+    });
+  } else if (peRatio === null || Number.isNaN(peRatio)) {
+    missingInputs.push("P/E ratio");
+    steps.push({
+      id: "peRatio",
+      label: peStepLabel,
+      condition: peCondition,
+      value: null,
+      status: "missing",
+      failOutcome: INDICATOR_OUTCOMES.likelyOvervalued,
+    });
+    stopped = true;
+  } else if (peRatio <= 0) {
+    steps.push({
+      id: "peRatio",
+      label: peStepLabel,
+      condition: peCondition,
+      value: peRatio,
+      status: "fail",
+      failOutcome: INDICATOR_OUTCOMES.weakProfitability,
+    });
+    stopped = true;
+    outcome = INDICATOR_OUTCOMES.weakProfitability;
+  } else {
+    const passed = peRatio < 25;
+    steps.push({
+      id: "peRatio",
+      label: peStepLabel,
+      condition: peCondition,
+      value: peRatio,
+      status: passed ? "pass" : "fail",
+      failOutcome: INDICATOR_OUTCOMES.likelyOvervalued,
+    });
+    if (!passed) {
+      stopped = true;
+      outcome = INDICATOR_OUTCOMES.likelyOvervalued;
+    }
+  }
 
   pushStep(
     "pegRatio",

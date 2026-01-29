@@ -204,7 +204,7 @@ function isOverrideEnabled(overrides, key) {
 function computePeRatio(currentPrice, eps) {
   const price = normaliseNumber(currentPrice, NaN);
   const epsValue = normaliseNumber(eps, NaN);
-  if (!Number.isFinite(price) || !Number.isFinite(epsValue) || epsValue <= 0) {
+  if (!Number.isFinite(price) || !Number.isFinite(epsValue) || epsValue === 0) {
     return null;
   }
   const pe = price / epsValue;
@@ -214,7 +214,12 @@ function computePeRatio(currentPrice, eps) {
 function computePegRatio(pe, growthPct) {
   const peValue = normaliseNumber(pe, NaN);
   const growthValue = normaliseNumber(growthPct, NaN);
-  if (!Number.isFinite(peValue) || !Number.isFinite(growthValue) || growthValue <= 0) {
+  if (
+    !Number.isFinite(peValue) ||
+    peValue <= 0 ||
+    !Number.isFinite(growthValue) ||
+    growthValue <= 0
+  ) {
     return null;
   }
   const peg = peValue / growthValue;
@@ -305,8 +310,8 @@ router.get("/", async (req, res, next) => {
         const priceEntry = priceMap[sym] ?? {};
         const currentPrice = priceEntry?.current ?? null;
         const peRatio =
-          computePeRatio(currentPrice, fundamentals.epsDiluted) ??
-          computePeRatio(currentPrice, fundamentals.epsDilutedPositive);
+          computePeRatio(currentPrice, fundamentals.epsDilutedPositive) ??
+          computePeRatio(currentPrice, fundamentals.epsDiluted);
         const pegRatio = computePegRatio(peRatio, fundamentals.epsCagrPct);
 
         const updates = {};

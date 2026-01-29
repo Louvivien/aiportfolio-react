@@ -722,6 +722,9 @@ function IndicatorModal({ detail, onClose }: IndicatorModalProps) {
       case "pass":
         return "Pass";
       case "fail":
+        if (step.id === "peRatio" && step.value !== null && step.value <= 0) {
+          return "Fails (negative earnings → P/E not meaningful)";
+        }
         return step.failOutcome ? `Fails → ${step.failOutcome.label}` : "Fails rule";
       case "missing":
         return "Missing input";
