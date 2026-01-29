@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb";
 import { getCollections } from "../db.js";
 import { getPrices, getPriceHistory } from "../priceService.js";
 import { fetchForumPosts } from "../forumService.js";
-import { getFundamentalsSnapshot } from "../fundamentalsService.js";
+import { FUNDAMENTALS_CACHE_TTL_MS, getFundamentalsSnapshot } from "../fundamentalsService.js";
 import {
   asBoolean,
   ensureArray,
@@ -158,14 +158,54 @@ function enrichDocument(doc, priceEntry, tagNames) {
     }
   }
 
+  const overrides = normaliseOverrides(doc?.fundamentals_overrides);
+  const snapshot =
+    doc?.fundamentals_snapshot && typeof doc.fundamentals_snapshot === "object"
+      ? doc.fundamentals_snapshot
+      : null;
+
+  const storedRevenueGrowth = parseNullableNumber(doc?.revenue_growth_yoy_pct);
+  const storedPeRatio = parseNullableNumber(doc?.pe_ratio);
+  const storedPegRatio = parseNullableNumber(doc?.peg_ratio);
+  const storedRoe5yAvg = parseNullableNumber(doc?.roe_5y_avg_pct);
+  const storedQuickRatio = parseNullableNumber(doc?.quick_ratio);
+
+  const snapshotRevenueGrowth = parseNullableNumber(snapshot?.revenueGrowthLatestYoYPct);
+  const snapshotRoe5yAvg = parseNullableNumber(snapshot?.roe5yAvgPct);
+  const snapshotQuickRatio = parseNullableNumber(snapshot?.quickRatio);
+
+  const revenueGrowthValue = isOverrideEnabled(overrides, "revenue_growth_yoy_pct")
+    ? storedRevenueGrowth
+    : snapshotRevenueGrowth ?? storedRevenueGrowth;
+  const roe5yAvgValue = isOverrideEnabled(overrides, "roe_5y_avg_pct")
+    ? storedRoe5yAvg
+    : snapshotRoe5yAvg ?? storedRoe5yAvg;
+  const quickRatioValue = isOverrideEnabled(overrides, "quick_ratio")
+    ? storedQuickRatio
+    : snapshotQuickRatio ?? storedQuickRatio;
+
+  const epsForPe =
+    parseNullableNumber(snapshot?.epsDilutedPositive) ?? parseNullableNumber(snapshot?.epsDiluted);
+  const computedPeRatio = computePeRatio(end, epsForPe);
+  const peRatioValue = isOverrideEnabled(overrides, "pe_ratio")
+    ? storedPeRatio
+    : computedPeRatio ?? storedPeRatio;
+
+  const computedPegRatio = computePegRatio(peRatioValue, parseNullableNumber(snapshot?.epsCagrPct));
+  const pegRatioValue = isOverrideEnabled(overrides, "peg_ratio")
+    ? storedPegRatio
+    : computedPegRatio ?? storedPegRatio;
+
   const enriched = {
     ...doc,
     purchase_date: toIsoDateTime(doc?.purchase_date),
     created_at: toIsoDateTime(doc?.created_at),
     updated_at: toIsoDateTime(doc?.updated_at),
     fundamentals_updated_at: toIsoDateTime(doc?.fundamentals_updated_at),
+    fundamentals_snapshot_updated_at: toIsoDateTime(doc?.fundamentals_snapshot_updated_at),
+    fundamentals_snapshot: snapshot,
     closing_date: toIsoDateTime(resolvedClosingDate),
-    current_price: computeEffectivePrice(doc, priceEntry),
+    current_price: end,
     long_name: priceEntry?.long_name ?? null,
     intraday_change: intradayChange,
     intraday_change_pct: intradayPct,
@@ -176,11 +216,11 @@ function enrichDocument(doc, priceEntry, tagNames) {
     change_1y_pct: change1yPct,
     tags: tagNames,
     boursorama_forum_url: doc?.boursorama_forum_url ?? guessBoursoramaForumUrl(doc?.symbol),
-    revenue_growth_yoy_pct: parseNullableNumber(doc?.revenue_growth_yoy_pct),
-    pe_ratio: parseNullableNumber(doc?.pe_ratio),
-    peg_ratio: parseNullableNumber(doc?.peg_ratio),
-    roe_5y_avg_pct: parseNullableNumber(doc?.roe_5y_avg_pct),
-    quick_ratio: parseNullableNumber(doc?.quick_ratio),
+    revenue_growth_yoy_pct: revenueGrowthValue,
+    pe_ratio: peRatioValue,
+    peg_ratio: pegRatioValue,
+    roe_5y_avg_pct: roe5yAvgValue,
+    quick_ratio: quickRatioValue,
     indicator_disabled: asBoolean(doc?.indicator_disabled),
   };
   return withStringId(enriched);
@@ -204,7 +244,7 @@ function isOverrideEnabled(overrides, key) {
 function computePeRatio(currentPrice, eps) {
   const price = normaliseNumber(currentPrice, NaN);
   const epsValue = normaliseNumber(eps, NaN);
-  if (!Number.isFinite(price) || !Number.isFinite(epsValue) || epsValue === 0) {
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(epsValue) || epsValue === 0) {
     return null;
   }
   const pe = price / epsValue;
@@ -261,36 +301,37 @@ router.get("/", async (req, res, next) => {
       });
     }
 
+    const now = new Date();
     const docsNeedingFundamentals = docs
       .map((doc) => {
         const sym = String(doc.symbol || "").toUpperCase();
         const disabled = asBoolean(doc?.indicator_disabled);
         const fundamentalsVersion = normaliseNumber(doc?.fundamentals_version, 0);
         const overrides = normaliseOverrides(doc?.fundamentals_overrides);
+        const snapshotUpdatedAt = parseDateInput(doc?.fundamentals_snapshot_updated_at);
+        const snapshotStale =
+          snapshotUpdatedAt === null ||
+          now.getTime() - snapshotUpdatedAt.getTime() > FUNDAMENTALS_CACHE_TTL_MS;
+        const needsSnapshot =
+          !disabled && (!doc?.fundamentals_snapshot || doc.fundamentals_snapshot === null || snapshotStale);
         const needsRevenueGrowth =
           !isOverrideEnabled(overrides, "revenue_growth_yoy_pct") &&
           (isMissingIndicatorField(doc?.revenue_growth_yoy_pct) ||
             fundamentalsVersion < FUNDAMENTALS_VERSION);
-        const needsPe =
-          !isOverrideEnabled(overrides, "pe_ratio") && isMissingIndicatorField(doc?.pe_ratio);
-        const needsPeg =
-          !isOverrideEnabled(overrides, "peg_ratio") && isMissingIndicatorField(doc?.peg_ratio);
         const needsRoe =
           !isOverrideEnabled(overrides, "roe_5y_avg_pct") &&
           isMissingIndicatorField(doc?.roe_5y_avg_pct);
         const needsQuick =
           !isOverrideEnabled(overrides, "quick_ratio") && isMissingIndicatorField(doc?.quick_ratio);
-        const needsAny =
-          !disabled && (needsRevenueGrowth || needsPe || needsPeg || needsRoe || needsQuick);
+        const needsAny = !disabled && (needsSnapshot || needsRevenueGrowth || needsRoe || needsQuick);
         return {
           doc,
           sym,
           disabled,
           overrides,
           fundamentalsVersion,
+          needsSnapshot,
           needsRevenueGrowth,
-          needsPe,
-          needsPeg,
           needsRoe,
           needsQuick,
           needsAny,
@@ -299,22 +340,24 @@ router.get("/", async (req, res, next) => {
       .filter((entry) => entry.needsAny && entry.sym);
 
     if (docsNeedingFundamentals.length) {
-      const now = new Date();
       await mapWithConcurrency(docsNeedingFundamentals, 3, async (entry) => {
-        const { doc, sym, overrides, fundamentalsVersion } = entry;
-        const fundamentals = await getFundamentalsSnapshot(sym);
+        const { doc, sym, overrides, fundamentalsVersion, needsSnapshot } = entry;
+        const fundamentals = needsSnapshot
+          ? await getFundamentalsSnapshot(sym)
+          : doc?.fundamentals_snapshot && typeof doc.fundamentals_snapshot === "object"
+            ? doc.fundamentals_snapshot
+            : null;
         if (!fundamentals) {
           return;
         }
 
-        const priceEntry = priceMap[sym] ?? {};
-        const currentPrice = priceEntry?.current ?? null;
-        const peRatio =
-          computePeRatio(currentPrice, fundamentals.epsDilutedPositive) ??
-          computePeRatio(currentPrice, fundamentals.epsDiluted);
-        const pegRatio = computePegRatio(peRatio, fundamentals.epsCagrPct);
-
         const updates = {};
+        if (needsSnapshot) {
+          updates.fundamentals_snapshot = fundamentals;
+          updates.fundamentals_snapshot_updated_at = now;
+          doc.fundamentals_snapshot = fundamentals;
+          doc.fundamentals_snapshot_updated_at = now;
+        }
         if (
           !isOverrideEnabled(overrides, "revenue_growth_yoy_pct") &&
           (isMissingIndicatorField(doc?.revenue_growth_yoy_pct) ||
@@ -340,27 +383,9 @@ router.get("/", async (req, res, next) => {
           updates.quick_ratio = fundamentals.quickRatio;
           doc.quick_ratio = fundamentals.quickRatio;
         }
-        if (
-          !isOverrideEnabled(overrides, "pe_ratio") &&
-          isMissingIndicatorField(doc?.pe_ratio) &&
-          peRatio !== null
-        ) {
-          updates.pe_ratio = peRatio;
-          doc.pe_ratio = peRatio;
-        }
-        if (
-          !isOverrideEnabled(overrides, "peg_ratio") &&
-          isMissingIndicatorField(doc?.peg_ratio) &&
-          pegRatio !== null
-        ) {
-          updates.peg_ratio = pegRatio;
-          doc.peg_ratio = pegRatio;
-        }
 
         if (Object.keys(updates).length) {
-          updates.fundamentals_updated_at = now;
           updates.fundamentals_version = FUNDAMENTALS_VERSION;
-          doc.fundamentals_updated_at = now;
           doc.fundamentals_version = FUNDAMENTALS_VERSION;
           await positions.updateOne({ _id: doc._id }, { $set: updates });
         }
@@ -553,6 +578,16 @@ router.put("/:id", async (req, res, next) => {
     const nextOverrides = { ...existingOverrides };
     let fundamentalsTouched = false;
 
+    const numbersEqual = (left, right) => {
+      if (left === null || left === undefined) {
+        return right === null || right === undefined;
+      }
+      if (right === null || right === undefined) {
+        return false;
+      }
+      return Math.abs(left - right) < 1e-9;
+    };
+
     const applyOverrideUpdate = (key, value) => {
       if (value === null || value === undefined) {
         delete nextOverrides[key];
@@ -561,25 +596,33 @@ router.put("/:id", async (req, res, next) => {
       }
     };
 
-    if (body.revenue_growth_yoy_pct !== undefined) {
+    const touchFundamentalOverride = (key) => {
+      const nextValue = updates[key];
+      const prevValue = parseNullableNumber(existing?.[key]);
+      const hadOverride = isOverrideEnabled(existingOverrides, key);
+
+      if (!hadOverride && numbersEqual(prevValue, nextValue)) {
+        delete updates[key];
+        return;
+      }
       fundamentalsTouched = true;
-      applyOverrideUpdate("revenue_growth_yoy_pct", updates.revenue_growth_yoy_pct);
+      applyOverrideUpdate(key, nextValue);
+    };
+
+    if (body.revenue_growth_yoy_pct !== undefined) {
+      touchFundamentalOverride("revenue_growth_yoy_pct");
     }
     if (body.pe_ratio !== undefined) {
-      fundamentalsTouched = true;
-      applyOverrideUpdate("pe_ratio", updates.pe_ratio);
+      touchFundamentalOverride("pe_ratio");
     }
     if (body.peg_ratio !== undefined) {
-      fundamentalsTouched = true;
-      applyOverrideUpdate("peg_ratio", updates.peg_ratio);
+      touchFundamentalOverride("peg_ratio");
     }
     if (body.roe_5y_avg_pct !== undefined) {
-      fundamentalsTouched = true;
-      applyOverrideUpdate("roe_5y_avg_pct", updates.roe_5y_avg_pct);
+      touchFundamentalOverride("roe_5y_avg_pct");
     }
     if (body.quick_ratio !== undefined) {
-      fundamentalsTouched = true;
-      applyOverrideUpdate("quick_ratio", updates.quick_ratio);
+      touchFundamentalOverride("quick_ratio");
     }
 
     if (fundamentalsTouched) {

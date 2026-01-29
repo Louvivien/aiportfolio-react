@@ -249,14 +249,19 @@ export async function getFundamentalsSnapshot(symbol) {
       const series = parseTimeseriesResponse(json);
 
       const revenue = series.get("annualTotalRevenue") ?? [];
-      const revenueGrowth = computeYoYGrowth(revenue);
-      const revenueGrowthRecent = takeLast(revenueGrowth, 5);
+      const revenueLatestPoint = revenue.length ? revenue[revenue.length - 1] : null;
+      const revenuePreviousPoint = revenue.length >= 2 ? revenue[revenue.length - 2] : null;
+      const revenueLatest = safeNumber(revenueLatestPoint?.value);
+      const revenuePrevious = safeNumber(revenuePreviousPoint?.value);
       const revenueGrowthLatest =
-        revenueGrowthRecent.length > 0 ? revenueGrowthRecent[revenueGrowthRecent.length - 1].value : null;
+        revenueLatest !== null && revenuePrevious !== null && revenuePrevious > 0
+          ? ((revenueLatest / revenuePrevious) - 1) * 100
+          : null;
 
       const eps = series.get("annualDilutedEPS") ?? [];
       const epsRecent = takeLast(eps, 4);
-      const epsLatest = eps.length ? eps[eps.length - 1].value : null;
+      const epsLatestPoint = eps.length ? eps[eps.length - 1] : null;
+      const epsLatest = safeNumber(epsLatestPoint?.value);
       const epsLatestPositivePoint = takeLastPositive(eps);
       const epsCagrPct = computeCagrPercent(epsRecent);
 
@@ -276,14 +281,26 @@ export async function getFundamentalsSnapshot(symbol) {
           revenueGrowthLatest === null || Number.isNaN(revenueGrowthLatest)
             ? null
             : revenueGrowthLatest,
+        revenueGrowthLatestYoYAsOfDate: revenueLatestPoint?.date ?? null,
+        revenueLatest: revenueLatest === null || Number.isNaN(revenueLatest) ? null : revenueLatest,
+        revenueLatestAsOfDate: revenueLatestPoint?.date ?? null,
+        revenuePrevious: revenuePrevious === null || Number.isNaN(revenuePrevious) ? null : revenuePrevious,
+        revenuePreviousAsOfDate: revenuePreviousPoint?.date ?? null,
         epsDiluted: epsLatest === null || Number.isNaN(epsLatest) ? null : epsLatest,
+        epsDilutedAsOfDate: epsLatestPoint?.date ?? null,
         epsDilutedPositive:
           epsLatestPositivePoint?.value === null || epsLatestPositivePoint?.value === undefined
             ? null
             : epsLatestPositivePoint.value,
+        epsDilutedPositiveAsOfDate: epsLatestPositivePoint?.date ?? null,
         epsCagrPct,
+        epsCagrFromDate: epsRecent.length >= 2 ? epsRecent[0]?.date ?? null : null,
+        epsCagrToDate: epsRecent.length >= 2 ? epsRecent[epsRecent.length - 1]?.date ?? null : null,
         roe5yAvgPct,
+        roe5yAvgFromDate: roeRecent.length ? roeRecent[0]?.date ?? null : null,
+        roe5yAvgToDate: roeRecent.length ? roeRecent[roeRecent.length - 1]?.date ?? null : null,
         quickRatio: quick.value,
+        quickRatioAsOfDate: quick.date ?? null,
       };
 
       cacheSet(fundamentalsCache, upper, snapshot);

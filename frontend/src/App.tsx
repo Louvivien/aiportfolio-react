@@ -29,6 +29,77 @@ import { buildPortfolioView } from "./utils/portfolio";
 
 const defaultSortConfig: SortConfig = { column: "value", direction: "desc" };
 
+const POSITIONS_SORT_STORAGE_KEY = "aiportfolio:positionsSortConfig";
+const POSITIONS_SHOW_CLOSED_STORAGE_KEY = "aiportfolio:positionsShowClosed";
+
+const sortableColumns: SortableColumn[] = [
+  "symbol",
+  "name",
+  "purchaseDate",
+  "quantity",
+  "cost",
+  "current",
+  "invest",
+  "value",
+  "pnl",
+  "pnlPct",
+  "intradayAbs",
+  "intradayPct",
+  "tenDayPct",
+  "oneYearPct",
+  "indicator",
+  "tags",
+];
+
+const isSortableColumn = (value: unknown): value is SortableColumn =>
+  typeof value === "string" && sortableColumns.includes(value as SortableColumn);
+
+const loadSortConfig = (): SortConfig => {
+  if (typeof window === "undefined") {
+    return defaultSortConfig;
+  }
+  try {
+    const raw = window.localStorage.getItem(POSITIONS_SORT_STORAGE_KEY);
+    if (!raw) {
+      return defaultSortConfig;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return defaultSortConfig;
+    }
+    const maybe = parsed as { column?: unknown; direction?: unknown };
+    const columnValue = maybe.column;
+    const directionValue = maybe.direction;
+    const column =
+      columnValue === null ? null : isSortableColumn(columnValue) ? columnValue : null;
+    const direction =
+      directionValue === "asc" || directionValue === "desc" ? directionValue : defaultSortConfig.direction;
+
+    if (!column) {
+      return defaultSortConfig;
+    }
+    return { column, direction };
+  } catch {
+    return defaultSortConfig;
+  }
+};
+
+const loadShowClosed = (): boolean => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    const raw = window.localStorage.getItem(POSITIONS_SHOW_CLOSED_STORAGE_KEY);
+    if (!raw) {
+      return false;
+    }
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "boolean" ? parsed : false;
+  } catch {
+    return false;
+  }
+};
+
 const extractErrorMessage = (error: unknown): string => {
   if (typeof error === "string") {
     return error;
@@ -64,8 +135,8 @@ function App() {
   const [mutationSuccess, setMutationSuccess] = useState<string | null>(null);
 
   const [filterTag, setFilterTag] = useState<string | null>(null);
-  const [sortConfig, setSortConfig] = useState<SortConfig>(defaultSortConfig);
-  const [showClosed, setShowClosed] = useState(false);
+  const [sortConfig, setSortConfig] = useState<SortConfig>(() => loadSortConfig());
+  const [showClosed, setShowClosed] = useState(() => loadShowClosed());
 
   const [editing, setEditing] = useState<Position | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -121,6 +192,22 @@ function App() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(POSITIONS_SORT_STORAGE_KEY, JSON.stringify(sortConfig));
+    } catch {
+      // Ignore storage failures (private mode, quotas, etc.)
+    }
+  }, [sortConfig]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(POSITIONS_SHOW_CLOSED_STORAGE_KEY, JSON.stringify(showClosed));
+    } catch {
+      // Ignore storage failures (private mode, quotas, etc.)
+    }
+  }, [showClosed]);
 
   const reloadData = useCallback(async () => {
     await loadAll();

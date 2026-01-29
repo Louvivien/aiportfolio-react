@@ -164,6 +164,16 @@ export function EditPositionModal({
 
     const forumUrlInput = state.forumUrl.trim();
 
+    const numbersEqual = (left: number | null, right: number | null) => {
+      if (left === null || left === undefined) {
+        return right === null || right === undefined;
+      }
+      if (right === null || right === undefined) {
+        return false;
+      }
+      return Math.abs(left - right) < 1e-9;
+    };
+
     const payload: UpdatePositionPayload = {
       symbol: state.symbol.toUpperCase().trim(),
       quantity: qty,
@@ -174,13 +184,33 @@ export function EditPositionModal({
       tags: state.tags,
       purchase_date: state.purchaseDate ? state.purchaseDate : null,
       boursorama_forum_url: forumUrlInput ? forumUrlInput : null,
-      revenue_growth_yoy_pct: parsePrice(state.revenueGrowth),
-      pe_ratio: parsePrice(state.peRatio),
-      peg_ratio: parsePrice(state.pegRatio),
-      roe_5y_avg_pct: parsePrice(state.roe5yAvg),
-      quick_ratio: parsePrice(state.quickRatio),
       indicator_disabled: state.indicatorDisabled,
     };
+
+    const nextRevenueGrowth = parsePrice(state.revenueGrowth);
+    if (!numbersEqual(nextRevenueGrowth, position.revenue_growth_yoy_pct ?? null)) {
+      payload.revenue_growth_yoy_pct = nextRevenueGrowth;
+    }
+
+    const nextPeRatio = parsePrice(state.peRatio);
+    if (!numbersEqual(nextPeRatio, position.pe_ratio ?? null)) {
+      payload.pe_ratio = nextPeRatio;
+    }
+
+    const nextPegRatio = parsePrice(state.pegRatio);
+    if (!numbersEqual(nextPegRatio, position.peg_ratio ?? null)) {
+      payload.peg_ratio = nextPegRatio;
+    }
+
+    const nextRoe5yAvg = parsePrice(state.roe5yAvg);
+    if (!numbersEqual(nextRoe5yAvg, position.roe_5y_avg_pct ?? null)) {
+      payload.roe_5y_avg_pct = nextRoe5yAvg;
+    }
+
+    const nextQuickRatio = parsePrice(state.quickRatio);
+    if (!numbersEqual(nextQuickRatio, position.quick_ratio ?? null)) {
+      payload.quick_ratio = nextQuickRatio;
+    }
 
     try {
       await onSubmit(position.id, payload);

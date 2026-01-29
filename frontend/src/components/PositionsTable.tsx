@@ -696,6 +696,15 @@ interface IndicatorModalProps {
 
 function IndicatorModal({ detail, onClose }: IndicatorModalProps) {
   const { position, indicator } = detail;
+  const snapshot = position.fundamentals_snapshot ?? null;
+
+  const formatFiscalYear = (value: string | null | undefined): string => {
+    if (!value) {
+      return "—";
+    }
+    const year = String(value).slice(0, 4);
+    return /^\d{4}$/.test(year) ? `FY${year}` : value;
+  };
 
   const pillToneClass = classNames({
     "indicator-pill--positive": indicator.outcome?.tone === "positive",
@@ -744,6 +753,106 @@ function IndicatorModal({ detail, onClose }: IndicatorModalProps) {
           : "Not rated"
       : `${indicator.outcome.id} • ${indicator.outcome.label}`;
 
+  const renderStepMeta = (step: IndicatorStep) => {
+    if (indicator.disabled || !snapshot) {
+      return null;
+    }
+
+    if (step.id === "revenueGrowth") {
+      const latest = snapshot.revenueLatestAsOfDate ?? snapshot.revenueGrowthLatestYoYAsOfDate ?? null;
+      const previous = snapshot.revenuePreviousAsOfDate ?? null;
+      if (!latest || !previous) {
+        return null;
+      }
+      return (
+        <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Based on annual revenue {formatFiscalYear(latest)} vs {formatFiscalYear(previous)}.
+        </div>
+      );
+    }
+
+    if (step.id === "peRatio") {
+      const epsLatest = snapshot.epsDiluted ?? null;
+      const epsLatestDate = snapshot.epsDilutedAsOfDate ?? null;
+      const epsPositive = snapshot.epsDilutedPositive ?? null;
+      const epsPositiveDate = snapshot.epsDilutedPositiveAsOfDate ?? null;
+
+      const epsUsesPositiveFallback =
+        epsPositive !== null &&
+        epsPositive !== undefined &&
+        epsLatest !== null &&
+        epsLatest !== undefined &&
+        epsLatestDate !== null &&
+        epsPositiveDate !== null &&
+        epsLatestDate !== epsPositiveDate;
+
+      const epsUsed =
+        epsPositive !== null && epsPositive !== undefined ? epsPositive : epsLatest;
+      const epsUsedDate =
+        epsPositive !== null && epsPositive !== undefined ? epsPositiveDate : epsLatestDate;
+
+      if (epsUsed === null || epsUsed === undefined) {
+        return null;
+      }
+
+      const epsLabel = epsUsesPositiveFallback ? "Last positive annual diluted EPS" : "Annual diluted EPS";
+      const price = position.current_price ?? null;
+      if (price === null || price === undefined) {
+        return null;
+      }
+
+      const epsFY = epsUsedDate ? formatFiscalYear(epsUsedDate) : null;
+
+      return (
+        <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          P/E = Price / EPS. Price: {formatCurrency(price, position.currency)}. {epsLabel}:{" "}
+          {formatNumber(epsUsed)}
+          {epsFY ? ` (${epsFY})` : ""}.
+        </div>
+      );
+    }
+
+    if (step.id === "pegRatio" && snapshot.epsCagrPct !== null && snapshot.epsCagrPct !== undefined) {
+      const from = snapshot.epsCagrFromDate ?? null;
+      const to = snapshot.epsCagrToDate ?? null;
+      const range = from && to ? `${formatFiscalYear(from)}–${formatFiscalYear(to)}` : null;
+
+      return (
+        <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Growth used: EPS CAGR {formatNumber(snapshot.epsCagrPct)}%
+          {range ? ` (${range})` : ""}.
+        </div>
+      );
+    }
+
+    if (step.id === "roeAvg") {
+      const from = snapshot.roe5yAvgFromDate ?? null;
+      const to = snapshot.roe5yAvgToDate ?? null;
+      if (!from || !to) {
+        return null;
+      }
+      return (
+        <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Based on {formatFiscalYear(from)}–{formatFiscalYear(to)} average.
+        </div>
+      );
+    }
+
+    if (step.id === "quickRatio") {
+      const asOf = snapshot.quickRatioAsOfDate ?? null;
+      if (!asOf) {
+        return null;
+      }
+      return (
+        <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Based on latest annual balance sheet ({formatFiscalYear(asOf)}).
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   return (
     <div className="overlay" role="dialog" aria-modal="true">
       <div className="modal modal-wide">
@@ -780,6 +889,12 @@ function IndicatorModal({ detail, onClose }: IndicatorModalProps) {
                   ? `Add the missing inputs to compute the indicator: ${indicator.missingInputs.join(", ")}.`
                   : "Add indicator inputs to compute a score for this holding."}
           </p>
+          {!indicator.disabled && position.fundamentals_snapshot_updated_at ? (
+            <p className="muted" style={{ margin: "8px 0 0", fontSize: 12 }}>
+              Data source: Yahoo Finance (fundamentals-timeseries, annual). Snapshot updated{" "}
+              {formatDate(position.fundamentals_snapshot_updated_at)}.
+            </p>
+          ) : null}
         </div>
         <div className="indicator-steps">
           {indicator.steps.map((step) => (
@@ -799,6 +914,7 @@ function IndicatorModal({ detail, onClose }: IndicatorModalProps) {
                   </span>
                 ) : null}
               </div>
+              {renderStepMeta(step)}
             </div>
           ))}
         </div>

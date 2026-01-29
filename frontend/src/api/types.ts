@@ -3,6 +3,27 @@ export interface Tag {
   name: string;
 }
 
+export interface FundamentalsSnapshot {
+  revenueGrowthLatestYoYPct?: number | null;
+  revenueGrowthLatestYoYAsOfDate?: string | null;
+  revenueLatest?: number | null;
+  revenueLatestAsOfDate?: string | null;
+  revenuePrevious?: number | null;
+  revenuePreviousAsOfDate?: string | null;
+  epsDiluted?: number | null;
+  epsDilutedAsOfDate?: string | null;
+  epsDilutedPositive?: number | null;
+  epsDilutedPositiveAsOfDate?: string | null;
+  epsCagrPct?: number | null;
+  epsCagrFromDate?: string | null;
+  epsCagrToDate?: string | null;
+  roe5yAvgPct?: number | null;
+  roe5yAvgFromDate?: string | null;
+  roe5yAvgToDate?: string | null;
+  quickRatio?: number | null;
+  quickRatioAsOfDate?: string | null;
+}
+
 export interface Position {
   id?: string;
   _id?: string;
@@ -25,6 +46,9 @@ export interface Position {
   purchase_date?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  fundamentals_updated_at?: string | null;
+  fundamentals_snapshot_updated_at?: string | null;
+  fundamentals_snapshot?: FundamentalsSnapshot | null;
   boursorama_forum_url?: string | null;
   revenue_growth_yoy_pct?: number | null;
   pe_ratio?: number | null;
