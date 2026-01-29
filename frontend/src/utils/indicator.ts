@@ -103,7 +103,7 @@ export function evaluateStockIndicator(position: Position): StockIndicatorResult
   pushStep(
     "revenueGrowth",
     "Step 1 — Revenue growth",
-    "Revenue growth ≥ 10% YoY",
+    "Latest revenue growth ≥ 10% YoY",
     revenueGrowth,
     (value) => value >= 10,
     INDICATOR_OUTCOMES.lowRevenueGrowth,

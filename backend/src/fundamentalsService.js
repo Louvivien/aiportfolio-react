@@ -237,10 +237,8 @@ export async function getFundamentalsSnapshot(symbol) {
       const revenue = series.get("annualTotalRevenue") ?? [];
       const revenueGrowth = computeYoYGrowth(revenue);
       const revenueGrowthRecent = takeLast(revenueGrowth, 5);
-      const revenueGrowthMin =
-        revenueGrowthRecent.length > 0
-          ? Math.min(...revenueGrowthRecent.map((point) => point.value))
-          : null;
+      const revenueGrowthLatest =
+        revenueGrowthRecent.length > 0 ? revenueGrowthRecent[revenueGrowthRecent.length - 1].value : null;
 
       const eps = series.get("annualDilutedEPS") ?? [];
       const epsRecent = takeLast(eps, 4);
@@ -259,8 +257,10 @@ export async function getFundamentalsSnapshot(symbol) {
       const quick = computeLatestQuickRatio(currentAssets, inventory, currentLiabilities);
 
       const snapshot = {
-        revenueGrowthMinYoY5yPct:
-          revenueGrowthMin === null || Number.isNaN(revenueGrowthMin) ? null : revenueGrowthMin,
+        revenueGrowthLatestYoYPct:
+          revenueGrowthLatest === null || Number.isNaN(revenueGrowthLatest)
+            ? null
+            : revenueGrowthLatest,
         epsDiluted: epsLatest === null || Number.isNaN(epsLatest) ? null : epsLatest,
         epsCagrPct,
         roe5yAvgPct,
