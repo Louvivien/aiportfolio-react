@@ -26,6 +26,12 @@ export interface Position {
   created_at?: string | null;
   updated_at?: string | null;
   boursorama_forum_url?: string | null;
+  revenue_growth_yoy_pct?: number | null;
+  pe_ratio?: number | null;
+  peg_ratio?: number | null;
+  roe_5y_avg_pct?: number | null;
+  quick_ratio?: number | null;
+  indicator_disabled?: boolean;
 }
 
 export interface PortfolioSummary {
@@ -82,6 +88,12 @@ export interface CreatePositionPayload {
   closing_date?: string | null;
   purchase_date?: string | null;
   boursorama_forum_url?: string | null;
+  revenue_growth_yoy_pct?: number | null;
+  pe_ratio?: number | null;
+  peg_ratio?: number | null;
+  roe_5y_avg_pct?: number | null;
+  quick_ratio?: number | null;
+  indicator_disabled?: boolean;
 }
 
 export interface UpdatePositionPayload {
@@ -94,4 +106,10 @@ export interface UpdatePositionPayload {
   closing_date?: string | null;
   purchase_date?: string | null;
   boursorama_forum_url?: string | null;
+  revenue_growth_yoy_pct?: number | null;
+  pe_ratio?: number | null;
+  peg_ratio?: number | null;
+  roe_5y_avg_pct?: number | null;
+  quick_ratio?: number | null;
+  indicator_disabled?: boolean;
 }

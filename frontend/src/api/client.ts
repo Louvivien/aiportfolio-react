@@ -47,6 +47,7 @@ const normalizePosition = (raw: Position): Position => {
     closing_date: normalizeDateValue(raw.closing_date),
     created_at: normalizeDateValue(raw.created_at),
     updated_at: normalizeDateValue(raw.updated_at),
+    indicator_disabled: Boolean(raw.indicator_disabled),
   };
 };
 

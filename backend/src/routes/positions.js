@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { getCollections } from "../db.js";
 import { getPrices, getPriceHistory } from "../priceService.js";
 import { fetchForumPosts } from "../forumService.js";
+import { getFundamentalsSnapshot } from "../fundamentalsService.js";
 import {
   asBoolean,
   ensureArray,
@@ -59,6 +60,14 @@ async function getTagNames(tagIds) {
     })
     .filter(Boolean);
 }
+
+const parseNullableNumber = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const num = normaliseNumber(value, NaN);
+  return Number.isFinite(num) ? num : null;
+};
 
 function computeEffectivePrice(doc, priceEntry) {
   const isClosed = asBoolean(doc?.is_closed);
@@ -152,6 +161,7 @@ function enrichDocument(doc, priceEntry, tagNames) {
     purchase_date: toIsoDateTime(doc?.purchase_date),
     created_at: toIsoDateTime(doc?.created_at),
     updated_at: toIsoDateTime(doc?.updated_at),
+    fundamentals_updated_at: toIsoDateTime(doc?.fundamentals_updated_at),
     closing_date: toIsoDateTime(resolvedClosingDate),
     current_price: computeEffectivePrice(doc, priceEntry),
     long_name: priceEntry?.long_name ?? null,
@@ -164,8 +174,52 @@ function enrichDocument(doc, priceEntry, tagNames) {
     change_1y_pct: change1yPct,
     tags: tagNames,
     boursorama_forum_url: doc?.boursorama_forum_url ?? guessBoursoramaForumUrl(doc?.symbol),
+    revenue_growth_yoy_pct: parseNullableNumber(doc?.revenue_growth_yoy_pct),
+    pe_ratio: parseNullableNumber(doc?.pe_ratio),
+    peg_ratio: parseNullableNumber(doc?.peg_ratio),
+    roe_5y_avg_pct: parseNullableNumber(doc?.roe_5y_avg_pct),
+    quick_ratio: parseNullableNumber(doc?.quick_ratio),
+    indicator_disabled: asBoolean(doc?.indicator_disabled),
   };
   return withStringId(enriched);
+}
+
+function isMissingIndicatorField(value) {
+  return value === null || value === undefined || value === "";
+}
+
+function computePeRatio(currentPrice, eps) {
+  const price = normaliseNumber(currentPrice, NaN);
+  const epsValue = normaliseNumber(eps, NaN);
+  if (!Number.isFinite(price) || !Number.isFinite(epsValue) || epsValue <= 0) {
+    return null;
+  }
+  const pe = price / epsValue;
+  return Number.isFinite(pe) ? pe : null;
+}
+
+function computePegRatio(pe, growthPct) {
+  const peValue = normaliseNumber(pe, NaN);
+  const growthValue = normaliseNumber(growthPct, NaN);
+  if (!Number.isFinite(peValue) || !Number.isFinite(growthValue) || growthValue <= 0) {
+    return null;
+  }
+  const peg = peValue / growthValue;
+  return Number.isFinite(peg) ? peg : null;
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const out = new Array(items.length);
+  let index = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const current = index;
+      index += 1;
+      out[current] = await mapper(items[current], current);
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 router.get("/", async (req, res, next) => {
@@ -186,6 +240,67 @@ router.get("/", async (req, res, next) => {
       const tagDocs = await tags.find({ _id: { $in: ids } }).toArray();
       tagDocs.forEach((tag) => {
         tagNamesMap[String(tag._id)] = tag.name;
+      });
+    }
+
+    const docsNeedingFundamentals = docs
+      .map((doc) => {
+        const sym = String(doc.symbol || "").toUpperCase();
+        const tagNames = ensureArray(doc.tags)
+          .map((id) => tagNamesMap[String(id)])
+          .filter(Boolean);
+        const disabled = asBoolean(doc?.indicator_disabled);
+        const needsAny =
+          !disabled &&
+          (isMissingIndicatorField(doc?.revenue_growth_yoy_pct) ||
+            isMissingIndicatorField(doc?.pe_ratio) ||
+            isMissingIndicatorField(doc?.peg_ratio) ||
+            isMissingIndicatorField(doc?.roe_5y_avg_pct) ||
+            isMissingIndicatorField(doc?.quick_ratio));
+        return { doc, sym, tagNames, disabled, needsAny };
+      })
+      .filter((entry) => entry.needsAny && entry.sym);
+
+    if (docsNeedingFundamentals.length) {
+      const now = new Date();
+      await mapWithConcurrency(docsNeedingFundamentals, 3, async ({ doc, sym }) => {
+        const fundamentals = await getFundamentalsSnapshot(sym);
+        if (!fundamentals) {
+          return;
+        }
+
+        const priceEntry = priceMap[sym] ?? {};
+        const currentPrice = priceEntry?.current ?? null;
+        const peRatio = computePeRatio(currentPrice, fundamentals.epsDiluted);
+        const pegRatio = computePegRatio(peRatio, fundamentals.epsCagrPct);
+
+        const updates = {};
+        if (isMissingIndicatorField(doc?.revenue_growth_yoy_pct) && fundamentals.revenueGrowthMinYoY5yPct !== null) {
+          updates.revenue_growth_yoy_pct = fundamentals.revenueGrowthMinYoY5yPct;
+          doc.revenue_growth_yoy_pct = fundamentals.revenueGrowthMinYoY5yPct;
+        }
+        if (isMissingIndicatorField(doc?.roe_5y_avg_pct) && fundamentals.roe5yAvgPct !== null) {
+          updates.roe_5y_avg_pct = fundamentals.roe5yAvgPct;
+          doc.roe_5y_avg_pct = fundamentals.roe5yAvgPct;
+        }
+        if (isMissingIndicatorField(doc?.quick_ratio) && fundamentals.quickRatio !== null) {
+          updates.quick_ratio = fundamentals.quickRatio;
+          doc.quick_ratio = fundamentals.quickRatio;
+        }
+        if (isMissingIndicatorField(doc?.pe_ratio) && peRatio !== null) {
+          updates.pe_ratio = peRatio;
+          doc.pe_ratio = peRatio;
+        }
+        if (isMissingIndicatorField(doc?.peg_ratio) && pegRatio !== null) {
+          updates.peg_ratio = pegRatio;
+          doc.peg_ratio = pegRatio;
+        }
+
+        if (Object.keys(updates).length) {
+          updates.fundamentals_updated_at = now;
+          doc.fundamentals_updated_at = now;
+          await positions.updateOne({ _id: doc._id }, { $set: updates });
+        }
       });
     }
 
@@ -226,6 +341,12 @@ router.post("/", async (req, res, next) => {
       closing_date: isClosed ? closingDate ?? now : null,
       purchase_date: purchaseDate ?? now,
       boursorama_forum_url: normalizeForumUrl(body.boursorama_forum_url, body.symbol),
+      revenue_growth_yoy_pct: parseNullableNumber(body.revenue_growth_yoy_pct),
+      pe_ratio: parseNullableNumber(body.pe_ratio),
+      peg_ratio: parseNullableNumber(body.peg_ratio),
+      roe_5y_avg_pct: parseNullableNumber(body.roe_5y_avg_pct),
+      quick_ratio: parseNullableNumber(body.quick_ratio),
+      indicator_disabled: asBoolean(body.indicator_disabled),
       created_at: now,
       updated_at: now,
     };
@@ -322,6 +443,24 @@ router.put("/:id", async (req, res, next) => {
     }
     if (body.boursorama_forum_url !== undefined) {
       updates.boursorama_forum_url = normalizeForumUrl(body.boursorama_forum_url, body.symbol ?? existing.symbol);
+    }
+    if (body.revenue_growth_yoy_pct !== undefined) {
+      updates.revenue_growth_yoy_pct = parseNullableNumber(body.revenue_growth_yoy_pct);
+    }
+    if (body.pe_ratio !== undefined) {
+      updates.pe_ratio = parseNullableNumber(body.pe_ratio);
+    }
+    if (body.peg_ratio !== undefined) {
+      updates.peg_ratio = parseNullableNumber(body.peg_ratio);
+    }
+    if (body.roe_5y_avg_pct !== undefined) {
+      updates.roe_5y_avg_pct = parseNullableNumber(body.roe_5y_avg_pct);
+    }
+    if (body.quick_ratio !== undefined) {
+      updates.quick_ratio = parseNullableNumber(body.quick_ratio);
+    }
+    if (body.indicator_disabled !== undefined) {
+      updates.indicator_disabled = asBoolean(body.indicator_disabled);
     }
 
     if (

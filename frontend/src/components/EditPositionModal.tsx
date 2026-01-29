@@ -21,6 +21,12 @@ interface EditState {
   tags: string[];
   purchaseDate: string;
   forumUrl: string;
+  revenueGrowth: string;
+  peRatio: string;
+  pegRatio: string;
+  roe5yAvg: string;
+  quickRatio: string;
+  indicatorDisabled: boolean;
 }
 
 const EMPTY_STATE: EditState = {
@@ -33,6 +39,12 @@ const EMPTY_STATE: EditState = {
   tags: [],
   purchaseDate: "",
   forumUrl: "",
+  revenueGrowth: "",
+  peRatio: "",
+  pegRatio: "",
+  roe5yAvg: "",
+  quickRatio: "",
+  indicatorDisabled: false,
 };
 
 export function EditPositionModal({
@@ -66,6 +78,27 @@ export function EditPositionModal({
       tags: Array.isArray(position.tags) ? position.tags : [],
       purchaseDate: toDateInputValue(position.purchase_date ?? position.created_at ?? null),
       forumUrl: position.boursorama_forum_url ?? "",
+      revenueGrowth:
+        position.revenue_growth_yoy_pct === null || position.revenue_growth_yoy_pct === undefined
+          ? ""
+          : String(position.revenue_growth_yoy_pct),
+      peRatio:
+        position.pe_ratio === null || position.pe_ratio === undefined
+          ? ""
+          : String(position.pe_ratio),
+      pegRatio:
+        position.peg_ratio === null || position.peg_ratio === undefined
+          ? ""
+          : String(position.peg_ratio),
+      roe5yAvg:
+        position.roe_5y_avg_pct === null || position.roe_5y_avg_pct === undefined
+          ? ""
+          : String(position.roe_5y_avg_pct),
+      quickRatio:
+        position.quick_ratio === null || position.quick_ratio === undefined
+          ? ""
+          : String(position.quick_ratio),
+      indicatorDisabled: Boolean(position.indicator_disabled),
     });
   }, [position]);
 
@@ -141,6 +174,12 @@ export function EditPositionModal({
       tags: state.tags,
       purchase_date: state.purchaseDate ? state.purchaseDate : null,
       boursorama_forum_url: forumUrlInput ? forumUrlInput : null,
+      revenue_growth_yoy_pct: parsePrice(state.revenueGrowth),
+      pe_ratio: parsePrice(state.peRatio),
+      peg_ratio: parsePrice(state.pegRatio),
+      roe_5y_avg_pct: parsePrice(state.roe5yAvg),
+      quick_ratio: parsePrice(state.quickRatio),
+      indicator_disabled: state.indicatorDisabled,
     };
 
     try {
@@ -245,6 +284,94 @@ export function EditPositionModal({
                 </>
               )}
             </div>
+          </div>
+
+          <div className="input-row">
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span style={{ fontWeight: 600 }}>Stock indicator inputs</span>
+              <label className="checkbox-row" htmlFor="edit-indicator-disabled">
+                <input
+                  id="edit-indicator-disabled"
+                  type="checkbox"
+                  checked={state.indicatorDisabled}
+                  onChange={(event) => updateState("indicatorDisabled", event.target.checked)}
+                  disabled={loading}
+                />
+                Disable indicator (useful for ETFs)
+              </label>
+            </div>
+            <div className="grid two" style={{ marginTop: 8 }}>
+              <div className="input-row">
+                <label htmlFor="edit-revenue-growth">Revenue growth YoY (%)</label>
+                <input
+                  id="edit-revenue-growth"
+                  type="number"
+                  step="0.01"
+                  value={state.revenueGrowth}
+                  onChange={(event) => updateState("revenueGrowth", event.target.value)}
+                  placeholder="e.g. 12.5"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="edit-pe-ratio">P/E ratio</label>
+                <input
+                  id="edit-pe-ratio"
+                  type="number"
+                  step="0.01"
+                  value={state.peRatio}
+                  onChange={(event) => updateState("peRatio", event.target.value)}
+                  placeholder="e.g. 18.4"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="edit-peg-ratio">PEG ratio</label>
+                <input
+                  id="edit-peg-ratio"
+                  type="number"
+                  step="0.01"
+                  value={state.pegRatio}
+                  onChange={(event) => updateState("pegRatio", event.target.value)}
+                  placeholder="e.g. 1.3"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="edit-roe-avg">ROE 5-year avg (%)</label>
+                <input
+                  id="edit-roe-avg"
+                  type="number"
+                  step="0.01"
+                  value={state.roe5yAvg}
+                  onChange={(event) => updateState("roe5yAvg", event.target.value)}
+                  placeholder="e.g. 8.2"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="edit-quick-ratio">Quick ratio</label>
+                <input
+                  id="edit-quick-ratio"
+                  type="number"
+                  step="0.01"
+                  value={state.quickRatio}
+                  onChange={(event) => updateState("quickRatio", event.target.value)}
+                  placeholder="e.g. 1.8"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+            </div>
+            <p className="muted" style={{ marginTop: 6 }}>
+              Leave blank to keep missing; clear a field to remove its stored value.
+            </p>
           </div>
 
           <div className="input-row">

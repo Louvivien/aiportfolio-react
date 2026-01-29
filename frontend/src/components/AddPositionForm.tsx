@@ -18,6 +18,12 @@ const INITIAL_STATE = {
   isClosed: false,
   tags: [] as string[],
   purchaseDate: "",
+  revenueGrowth: "",
+  peRatio: "",
+  pegRatio: "",
+  roe5yAvg: "",
+  quickRatio: "",
+  indicatorDisabled: false,
 };
 
 type FormState = typeof INITIAL_STATE;
@@ -92,6 +98,12 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
       closing_price: closingValue,
       closing_date: closingDate,
       purchase_date: state.purchaseDate || undefined,
+      revenue_growth_yoy_pct: parsePrice(state.revenueGrowth),
+      pe_ratio: parsePrice(state.peRatio),
+      peg_ratio: parsePrice(state.pegRatio),
+      roe_5y_avg_pct: parsePrice(state.roe5yAvg),
+      quick_ratio: parsePrice(state.quickRatio),
+      indicator_disabled: state.indicatorDisabled,
     };
 
     await onCreate(payload);
@@ -193,6 +205,94 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
                 </>
               )}
             </div>
+          </div>
+
+          <div className="input-row">
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span style={{ fontWeight: 600 }}>Stock indicator inputs</span>
+              <label className="checkbox-row" htmlFor="add-indicator-disabled">
+                <input
+                  id="add-indicator-disabled"
+                  type="checkbox"
+                  checked={state.indicatorDisabled}
+                  onChange={(event) => updateField("indicatorDisabled", event.target.checked)}
+                  disabled={loading}
+                />
+                Disable indicator for this position
+              </label>
+            </div>
+            <div className="grid two" style={{ marginTop: 8 }}>
+              <div className="input-row">
+                <label htmlFor="add-revenue-growth">Revenue growth YoY (%)</label>
+                <input
+                  id="add-revenue-growth"
+                  type="number"
+                  step="0.01"
+                  value={state.revenueGrowth}
+                  onChange={(event) => updateField("revenueGrowth", event.target.value)}
+                  placeholder="e.g. 12.5"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="add-pe-ratio">P/E ratio</label>
+                <input
+                  id="add-pe-ratio"
+                  type="number"
+                  step="0.01"
+                  value={state.peRatio}
+                  onChange={(event) => updateField("peRatio", event.target.value)}
+                  placeholder="e.g. 18.4"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="add-peg-ratio">PEG ratio</label>
+                <input
+                  id="add-peg-ratio"
+                  type="number"
+                  step="0.01"
+                  value={state.pegRatio}
+                  onChange={(event) => updateField("pegRatio", event.target.value)}
+                  placeholder="e.g. 1.3"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="add-roe-avg">ROE 5-year avg (%)</label>
+                <input
+                  id="add-roe-avg"
+                  type="number"
+                  step="0.01"
+                  value={state.roe5yAvg}
+                  onChange={(event) => updateField("roe5yAvg", event.target.value)}
+                  placeholder="e.g. 8.2"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="add-quick-ratio">Quick ratio</label>
+                <input
+                  id="add-quick-ratio"
+                  type="number"
+                  step="0.01"
+                  value={state.quickRatio}
+                  onChange={(event) => updateField("quickRatio", event.target.value)}
+                  placeholder="e.g. 1.8"
+                  disabled={loading || state.indicatorDisabled}
+                />
+              </div>
+            </div>
+            <p className="muted" style={{ marginTop: 6 }}>
+              Leave blank if the data is missing; the indicator will show a warning when inputs are incomplete.
+            </p>
           </div>
 
           <div className="input-row">
