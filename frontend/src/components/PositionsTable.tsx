@@ -599,51 +599,49 @@ export function PositionsTable({
                         )}
                       </td>
                     )}
-                    {columns.indicator && (
-                      <td>
-                        <button
-                          type="button"
-                          className="indicator-pill-btn"
-                          onClick={() => openIndicatorModal(position)}
-                          title="Open fundamentals indicator"
-                        >
-                          <span
-                            className={classNames("indicator-pill", {
-                              "indicator-pill--positive": indicator.outcome?.tone === "positive",
-                              "indicator-pill--warning":
-                                indicator.outcome?.tone === "warning" ||
-                                (!indicator.outcome && indicator.missingInputs.length > 0),
-                              "indicator-pill--negative": indicator.outcome?.tone === "negative",
-                              "indicator-pill--neutral":
-                                indicator.outcome?.tone === "neutral" ||
-                                (!indicator.outcome && !indicator.missingInputs.length) ||
-                                indicator.disabled,
-                            })}
+                  {columns.indicator && (
+                    <td>
+                      {indicator.disabled ? null : (
+                        <>
+                          <button
+                            type="button"
+                            className="indicator-pill-btn"
+                            onClick={() => openIndicatorModal(position)}
+                            title="Open fundamentals indicator"
                           >
-                            <span className="indicator-pill-code">
-                              {indicator.outcome ? indicator.outcome.id : indicator.disabled ? "—" : "…"}
+                            <span
+                              className={classNames("indicator-pill", {
+                                "indicator-pill--positive": indicator.outcome?.tone === "positive",
+                                "indicator-pill--warning":
+                                  indicator.outcome?.tone === "warning" ||
+                                  (!indicator.outcome && indicator.missingInputs.length > 0),
+                                "indicator-pill--negative": indicator.outcome?.tone === "negative",
+                                "indicator-pill--neutral":
+                                  indicator.outcome?.tone === "neutral" ||
+                                  (!indicator.outcome && !indicator.missingInputs.length),
+                              })}
+                            >
+                              <span className="indicator-pill-code">
+                                {indicator.outcome ? indicator.outcome.id : "…"}
+                              </span>
+                              <span className="indicator-pill-label">
+                                {indicator.outcome
+                                  ? indicator.outcome.label
+                                  : indicator.missingInputs.length
+                                    ? "Data needed"
+                                    : "Not rated"}
+                              </span>
                             </span>
-                            <span className="indicator-pill-label">
-                              {indicator.disabled
-                                ? "Indicator disabled"
-                                : indicator.outcome
-                                ? indicator.outcome.label
-                                : indicator.missingInputs.length
-                                  ? "Data needed"
-                                  : "Not rated"}
-                            </span>
-                          </span>
-                        </button>
-                        {indicator.missingInputs.length > 0 && !indicator.disabled && (
-                          <div className="indicator-hint">
-                            Missing: {indicator.missingInputs.join(", ")}
-                          </div>
-                        )}
-                        {indicator.disabled && (
-                          <div className="indicator-hint">Disabled for this position</div>
-                        )}
-                      </td>
-                    )}
+                          </button>
+                          {indicator.missingInputs.length > 0 && (
+                            <div className="indicator-hint">
+                              Missing: {indicator.missingInputs.join(", ")}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </td>
+                  )}
                     {columns.tags && (
                       <td>
                         {position.tags.map((tag) => (
