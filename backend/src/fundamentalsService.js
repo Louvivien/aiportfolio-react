@@ -109,6 +109,20 @@ function takeLast(points, count) {
   return points.slice(Math.max(0, points.length - count));
 }
 
+function takeLastPositive(points) {
+  if (!Array.isArray(points) || !points.length) {
+    return null;
+  }
+  for (let idx = points.length - 1; idx >= 0; idx -= 1) {
+    const point = points[idx];
+    const value = safeNumber(point?.value);
+    if (value !== null && value > 0) {
+      return { date: point.date ?? null, value };
+    }
+  }
+  return null;
+}
+
 function computeYoYGrowth(points) {
   if (!Array.isArray(points) || points.length < 2) {
     return [];
@@ -243,6 +257,7 @@ export async function getFundamentalsSnapshot(symbol) {
       const eps = series.get("annualDilutedEPS") ?? [];
       const epsRecent = takeLast(eps, 4);
       const epsLatest = eps.length ? eps[eps.length - 1].value : null;
+      const epsLatestPositivePoint = takeLastPositive(eps);
       const epsCagrPct = computeCagrPercent(epsRecent);
 
       const netIncome = series.get("annualNetIncome") ?? [];
@@ -262,6 +277,10 @@ export async function getFundamentalsSnapshot(symbol) {
             ? null
             : revenueGrowthLatest,
         epsDiluted: epsLatest === null || Number.isNaN(epsLatest) ? null : epsLatest,
+        epsDilutedPositive:
+          epsLatestPositivePoint?.value === null || epsLatestPositivePoint?.value === undefined
+            ? null
+            : epsLatestPositivePoint.value,
         epsCagrPct,
         roe5yAvgPct,
         quickRatio: quick.value,

@@ -304,7 +304,9 @@ router.get("/", async (req, res, next) => {
 
         const priceEntry = priceMap[sym] ?? {};
         const currentPrice = priceEntry?.current ?? null;
-        const peRatio = computePeRatio(currentPrice, fundamentals.epsDiluted);
+        const peRatio =
+          computePeRatio(currentPrice, fundamentals.epsDiluted) ??
+          computePeRatio(currentPrice, fundamentals.epsDilutedPositive);
         const pegRatio = computePegRatio(peRatio, fundamentals.epsCagrPct);
 
         const updates = {};
