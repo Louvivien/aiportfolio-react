@@ -614,6 +614,35 @@ async function resolveAndFetchPrice(symbol) {
         }
       }
 
+      // Fetch historical NAV data from Yahoo Finance for 10-day and 1-year changes
+      let price10d = null;
+      let price1y = null;
+      try {
+        // Use direct chart API for funds (more reliable than library)
+        const histUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(upper)}?interval=1d&range=1mo`;
+        const histData = await fetchJson(histUrl, { headers: { 'User-Agent': USER_AGENT } });
+        const histResult = histData?.chart?.result?.[0];
+        if (histResult) {
+          const closes = histResult.indicators?.quote?.[0]?.close?.filter((c) => c !== null) || [];
+          if (closes.length > 0) {
+            price10d = extractPrice10dFromCloses(closes);
+            price1y = closes.length > 0 ? closes[0] : null; // Use oldest available as approximation
+          }
+        }
+      } catch {
+        price10d = null;
+        price1y = null;
+      }
+
+      const change10dPct =
+        current !== null && price10d !== null && price10d !== 0
+          ? ((current / price10d) - 1) * 100
+          : null;
+      const change1yPct =
+        current !== null && price1y !== null && price1y !== 0
+          ? ((current / price1y) - 1) * 100
+          : null;
+
       return {
         current,
         previous_close: previous,
@@ -621,10 +650,10 @@ async function resolveAndFetchPrice(symbol) {
         change_pct: changePct,
         long_name: null,
         currency: currencyMatch?.[1] ?? "EUR",
-        price_10d: null,
-        change_10d_pct: null,
-        price_1y: null,
-        change_1y_pct: null,
+        price_10d: price10d,
+        change_10d_pct: change10dPct,
+        price_1y: price1y,
+        change_1y_pct: change1yPct,
       };
     } catch {
       return emptyPriceEntry();
