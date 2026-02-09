@@ -592,13 +592,33 @@ async function resolveAndFetchPrice(symbol) {
     try {
       const html = await fetchText(url, { headers: { Accept: "text/html,*/*" } });
       const priceMatch = html.match(/data-ist-last[^>]*>([^<]+)</i);
+      const variationMatch = html.match(/data-ist-variation[^>]*>([^<]+)</i);
       const currencyMatch = html.match(/c-faceplate__price-currency[^>]*>\\s*([A-Z]{3})\\s*</i);
+
       const current = normaliseNumericString(priceMatch?.[1]) ?? 0;
+      const variationStr = variationMatch?.[1]?.trim() || null;
+
+      // Parse variation percentage (e.g., "-1,55%" or "+2,30%")
+      let changePct = null;
+      let previous = null;
+      let change = null;
+
+      if (variationStr && current !== 0) {
+        const cleanVariation = variationStr.replace(/[+%\s]/g, '').replace(',', '.');
+        changePct = normaliseNumericString(cleanVariation);
+        if (changePct !== null && Number.isFinite(changePct)) {
+          // Calculate previous NAV from current price and variation
+          // Formula: previous = current / (1 + changePct/100)
+          previous = current / (1 + changePct / 100);
+          change = current - previous;
+        }
+      }
+
       return {
         current,
-        previous_close: null,
-        change: null,
-        change_pct: null,
+        previous_close: previous,
+        change,
+        change_pct: changePct,
         long_name: null,
         currency: currencyMatch?.[1] ?? "EUR",
         price_10d: null,
