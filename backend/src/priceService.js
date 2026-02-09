@@ -14,6 +14,15 @@ const historyCache = new Map();
 const resolutionCache = new Map();
 let yahooBlockedUntilMs = 0;
 
+// Export function to clear caches (for debugging/manual refresh)
+export function clearAllCaches() {
+  priceCache.clear();
+  historyCache.clear();
+  resolutionCache.clear();
+  yahooBlockedUntilMs = 0;
+  console.log('All price caches cleared, Yahoo block lifted');
+}
+
 function nowMs() {
   return Date.now();
 }
@@ -169,13 +178,25 @@ async function fetchBoursoramaQuote(symbolId) {
   }
   const url = `https://www.boursorama.com/bourse/action/graph/ws/GetTicksEOD?symbol=${encodeURIComponent(
     symbolId,
-  )}&length=5`;
+  )}&length=5&period=-1`;
   const data = await fetchJson(url);
   if (!data || Array.isArray(data) || !data.d) {
     return null;
   }
   const root = data.d;
-  const current = safeNumber(root?.qd?.c);
+
+  // Get live intraday price from QuoteTab (most recent tick)
+  let current = safeNumber(root?.qd?.c);
+  const quoteTab = root?.QuoteTab;
+  if (Array.isArray(quoteTab) && quoteTab.length > 0) {
+    // QuoteTab contains intraday ticks, use the most recent close price
+    const latestTick = quoteTab[quoteTab.length - 1];
+    const intradayPrice = safeNumber(latestTick?.c);
+    if (intradayPrice !== null) {
+      current = intradayPrice;
+    }
+  }
+
   const previous = safeNumber(root?.qv?.c);
   const change = current !== null && previous !== null ? current - previous : null;
   const changePct = change !== null && previous ? (change / previous) * 100 : null;
@@ -400,6 +421,37 @@ async function fetchYahooHistoryPoints(symbol, { period1, period2, interval }) {
   }
 }
 
+async function fetchYahooChartApi(symbol) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+    const data = await fetchJson(url, { headers: { 'User-Agent': USER_AGENT } });
+    const result = data?.chart?.result?.[0];
+    if (!result) {
+      console.log(`[YahooChart] No result for ${symbol}`);
+      return null;
+    }
+    const meta = result.meta;
+    const current = safeNumber(meta?.regularMarketPrice);
+    const previous = safeNumber(meta?.chartPreviousClose);
+    const change = current !== null && previous !== null ? current - previous : null;
+    const changePct = change !== null && previous ? (change / previous) * 100 : null;
+
+    console.log(`[YahooChart] ${symbol}: current=${current}, previous=${previous}, change=${change}`);
+
+    return {
+      current,
+      previous_close: previous,
+      change,
+      change_pct: changePct,
+      long_name: meta?.longName ?? meta?.shortName ?? null,
+      currency: meta?.currency ?? null,
+    };
+  } catch (err) {
+    console.log(`[YahooChart] Error for ${symbol}: ${err.message}`);
+    return null;
+  }
+}
+
 async function fetchYahooFallback(symbol) {
   if (!symbol) {
     return null;
@@ -408,6 +460,46 @@ async function fetchYahooFallback(symbol) {
     return null;
   }
   const upper = symbol.toUpperCase();
+
+  // Try chart API first (more reliable, less rate-limiting)
+  const chartData = await fetchYahooChartApi(upper);
+  if (chartData) {
+    // Still need historical data, try to get it
+    let price10d = null;
+    let price1y = null;
+    try {
+      const end = new Date();
+      const start = new Date();
+      start.setFullYear(end.getFullYear() - 1);
+      const closes = (await fetchYahooHistoryPoints(upper, { period1: start, period2: end, interval: "1d" }))
+        .map((point) => point.close)
+        .filter((value) => value !== null);
+      price10d = extractPrice10dFromCloses(closes);
+      price1y = extractPrice1yFromCloses(closes);
+    } catch {
+      price10d = null;
+      price1y = null;
+    }
+
+    const change10dPct =
+      chartData.current !== null && price10d !== null && price10d !== 0
+        ? ((chartData.current / price10d) - 1) * 100
+        : null;
+    const change1yPct =
+      chartData.current !== null && price1y !== null && price1y !== 0
+        ? ((chartData.current / price1y) - 1) * 100
+        : null;
+
+    return {
+      ...chartData,
+      price_10d: price10d,
+      change_10d_pct: change10dPct,
+      price_1y: price1y,
+      change_1y_pct: change1yPct,
+    };
+  }
+
+  // Fall back to library method
   try {
     const quote = await yahooFinance.quote(upper);
 
