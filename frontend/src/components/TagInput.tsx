@@ -1,4 +1,5 @@
 import { useMemo, useState, KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
 import classNames from "classnames";
 
 interface TagInputProps {
@@ -75,6 +76,12 @@ export function TagInput({ value, onChange, suggestions = [], placeholder }: Tag
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleKeyDown}
+          onBlur={() => {
+            if (!draft.trim()) {
+              return;
+            }
+            flushSync(() => commitDraft(draft));
+          }}
           placeholder={placeholder}
         />
       </div>
