@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { getCollections } from "../db.js";
+import {
+  computePriceEntryFromDailySeries,
+  fetchCustomApiDailySeries,
+  getCustomApiPricesForPositions,
+} from "../customApiService.js";
 import { getPrices, getPriceHistory } from "../priceService.js";
 import { fetchForumPosts } from "../forumService.js";
 import { FUNDAMENTALS_CACHE_TTL_MS, getFundamentalsSnapshot } from "../fundamentalsService.js";
@@ -70,6 +75,41 @@ const parseNullableNumber = (value) => {
 };
 
 const FUNDAMENTALS_VERSION = 2;
+
+const normalizeDisplayName = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const cleaned = typeof value === "string" ? value.trim() : String(value).trim();
+  return cleaned ? cleaned : null;
+};
+
+const normalizeApiToken = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const cleaned = typeof value === "string" ? value.trim() : String(value).trim();
+  return cleaned ? cleaned : null;
+};
+
+const normalizeApiUrl = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const cleaned = typeof value === "string" ? value.trim() : String(value).trim();
+  if (!cleaned) {
+    return null;
+  }
+  try {
+    const url = new URL(cleaned);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
 
 function computeEffectivePrice(doc, priceEntry) {
   const isClosed = asBoolean(doc?.is_closed);
@@ -196,8 +236,13 @@ function enrichDocument(doc, priceEntry, tagNames) {
     ? storedPegRatio
     : computedPegRatio ?? storedPegRatio;
 
+  const safeDoc = doc && typeof doc === "object" ? { ...doc } : doc;
+  if (safeDoc && Object.prototype.hasOwnProperty.call(safeDoc, "api_token")) {
+    delete safeDoc.api_token;
+  }
+
   const enriched = {
-    ...doc,
+    ...safeDoc,
     purchase_date: toIsoDateTime(doc?.purchase_date),
     created_at: toIsoDateTime(doc?.created_at),
     updated_at: toIsoDateTime(doc?.updated_at),
@@ -280,12 +325,60 @@ async function mapWithConcurrency(items, limit, mapper) {
   return out;
 }
 
+function resolveStartDate(period) {
+  if (!period) {
+    const fallback = new Date();
+    fallback.setMonth(fallback.getMonth() - 6);
+    return fallback;
+  }
+
+  const match = /^(\d+)([a-z]+)$/.exec(String(period).trim());
+  if (!match) {
+    const fallback = new Date();
+    fallback.setMonth(fallback.getMonth() - 6);
+    return fallback;
+  }
+
+  const value = Number(match[1]);
+  const unit = match[2];
+  const start = new Date();
+  if (Number.isNaN(value) || value <= 0) {
+    start.setMonth(start.getMonth() - 6);
+    return start;
+  }
+
+  switch (unit) {
+    case "d":
+      start.setDate(start.getDate() - value);
+      break;
+    case "wk":
+    case "w":
+      start.setDate(start.getDate() - value * 7);
+      break;
+    case "mo":
+      start.setMonth(start.getMonth() - value);
+      break;
+    case "y":
+      start.setFullYear(start.getFullYear() - value);
+      break;
+    default:
+      start.setMonth(start.getMonth() - 6);
+      break;
+  }
+  return start;
+}
+
 router.get("/", async (req, res, next) => {
   try {
     const { positions } = getCollections();
     const docs = await positions.find().limit(1000).toArray();
-    const symbols = uniqueUppercaseSymbols(docs);
-    const priceMap = await getPrices(symbols);
+    const apiDocs = docs.filter((doc) => Boolean(doc?.api_url));
+    const stockDocs = docs.filter((doc) => !doc?.api_url);
+    const symbols = uniqueUppercaseSymbols(stockDocs);
+    const [priceMap, apiPriceMap] = await Promise.all([
+      getPrices(symbols),
+      getCustomApiPricesForPositions(apiDocs),
+    ]);
 
     const uniqueTagIds = new Set();
     docs.forEach((doc) => {
@@ -305,7 +398,7 @@ router.get("/", async (req, res, next) => {
     const docsNeedingFundamentals = docs
       .map((doc) => {
         const sym = String(doc.symbol || "").toUpperCase();
-        const disabled = asBoolean(doc?.indicator_disabled);
+        const disabled = Boolean(doc?.api_url) || asBoolean(doc?.indicator_disabled);
         const fundamentalsVersion = normaliseNumber(doc?.fundamentals_version, 0);
         const overrides = normaliseOverrides(doc?.fundamentals_overrides);
         const snapshotUpdatedAt = parseDateInput(doc?.fundamentals_snapshot_updated_at);
@@ -394,7 +487,8 @@ router.get("/", async (req, res, next) => {
 
     const result = docs.map((doc) => {
       const sym = String(doc.symbol || "").toUpperCase();
-      const priceEntry = priceMap[sym] ?? {};
+      const apiKey = doc?._id ? String(doc._id) : null;
+      const priceEntry = doc?.api_url && apiKey ? apiPriceMap[apiKey] ?? {} : priceMap[sym] ?? {};
       const tagNames = ensureArray(doc.tags)
         .map((id) => tagNamesMap[String(id)])
         .filter(Boolean);
@@ -411,6 +505,16 @@ router.post("/", async (req, res, next) => {
   try {
     const { positions } = getCollections();
     const body = req.body || {};
+
+    const displayName = normalizeDisplayName(body.display_name);
+    const apiUrl = normalizeApiUrl(body.api_url);
+    const apiToken = normalizeApiToken(body.api_token);
+    const apiUrlProvided = body.api_url !== undefined;
+    if (apiUrlProvided && String(body.api_url ?? "").trim() && !apiUrl) {
+      return res.status(400).json({ detail: "Invalid api_url (must be an http/https URL)." });
+    }
+    const isCustomApi = Boolean(apiUrl);
+
     const tagIds = await upsertTagsReturnIds(body.tags || []);
     const now = new Date();
     const purchaseDate = parseDateInput(body.purchase_date);
@@ -418,6 +522,9 @@ router.post("/", async (req, res, next) => {
     const isClosed = Boolean(body.is_closed);
     const doc = {
       symbol: String(body.symbol || "").toUpperCase(),
+      display_name: displayName,
+      api_url: apiUrl,
+      api_token: isCustomApi ? apiToken : null,
       quantity: normaliseNumber(body.quantity, 0),
       cost_price: normaliseNumber(body.cost_price, 0),
       tags: tagIds,
@@ -428,13 +535,15 @@ router.post("/", async (req, res, next) => {
           : normaliseNumber(body.closing_price),
       closing_date: isClosed ? closingDate ?? now : null,
       purchase_date: purchaseDate ?? now,
-      boursorama_forum_url: normalizeForumUrl(body.boursorama_forum_url, body.symbol),
+      boursorama_forum_url: isCustomApi
+        ? null
+        : normalizeForumUrl(body.boursorama_forum_url, body.symbol),
       revenue_growth_yoy_pct: parseNullableNumber(body.revenue_growth_yoy_pct),
       pe_ratio: parseNullableNumber(body.pe_ratio),
       peg_ratio: parseNullableNumber(body.peg_ratio),
       roe_5y_avg_pct: parseNullableNumber(body.roe_5y_avg_pct),
       quick_ratio: parseNullableNumber(body.quick_ratio),
-      indicator_disabled: asBoolean(body.indicator_disabled),
+      indicator_disabled: isCustomApi ? true : asBoolean(body.indicator_disabled),
       created_at: now,
       updated_at: now,
     };
@@ -464,11 +573,27 @@ router.post("/", async (req, res, next) => {
 
     const result = await positions.insertOne(doc);
     const inserted = await positions.findOne({ _id: result.insertedId });
+    if (!inserted) {
+      return res.status(500).json({ detail: "Failed to create position" });
+    }
 
+    let priceEntry = {};
     const symbol = inserted?.symbol ? String(inserted.symbol).toUpperCase() : null;
-    const priceMap = symbol ? await getPrices([symbol]) : {};
+    if (inserted.api_url) {
+      const series = await fetchCustomApiDailySeries(inserted.api_url, inserted.api_token);
+      priceEntry = computePriceEntryFromDailySeries(series);
+
+      if (body.purchase_date === undefined && series.length) {
+        const inferred = new Date(series[0].ts);
+        inserted.purchase_date = inferred;
+        await positions.updateOne({ _id: inserted._id }, { $set: { purchase_date: inferred } });
+      }
+    } else {
+      const priceMap = symbol ? await getPrices([symbol]) : {};
+      priceEntry = priceMap[symbol] ?? {};
+    }
     const tagNames = await getTagNames(inserted?.tags);
-    const response = enrichDocument(inserted, priceMap[symbol] ?? {}, tagNames);
+    const response = enrichDocument(inserted, priceEntry, tagNames);
     res.status(201).json(response);
   } catch (error) {
     next(error);
@@ -514,6 +639,30 @@ router.put("/:id", async (req, res, next) => {
 
     const updates = {};
     const body = req.body || {};
+    const existingApiUrl = typeof existing.api_url === "string" ? existing.api_url : null;
+
+    if (body.display_name !== undefined) {
+      updates.display_name = normalizeDisplayName(body.display_name);
+    }
+
+    let nextApiUrl = existingApiUrl;
+    if (body.api_url !== undefined) {
+      const normalisedUrl = normalizeApiUrl(body.api_url);
+      if (String(body.api_url ?? "").trim() && !normalisedUrl) {
+        return res.status(400).json({ detail: "Invalid api_url (must be an http/https URL)." });
+      }
+      nextApiUrl = normalisedUrl;
+      updates.api_url = normalisedUrl;
+      if (!normalisedUrl) {
+        updates.api_token = null;
+      }
+    }
+
+    const isCustomApi = Boolean(nextApiUrl);
+    if (body.api_token !== undefined) {
+      updates.api_token = isCustomApi ? normalizeApiToken(body.api_token) : null;
+    }
+
     const nextIsClosed =
       body.is_closed !== undefined ? Boolean(body.is_closed) : asBoolean(existing.is_closed);
     const hasClosingDate = body.closing_date !== undefined;
@@ -552,8 +701,13 @@ router.put("/:id", async (req, res, next) => {
       const parsedDate = parseDateInput(body.purchase_date);
       updates.purchase_date = parsedDate ?? null;
     }
-    if (body.boursorama_forum_url !== undefined) {
-      updates.boursorama_forum_url = normalizeForumUrl(body.boursorama_forum_url, body.symbol ?? existing.symbol);
+    if (isCustomApi) {
+      updates.boursorama_forum_url = null;
+    } else if (body.boursorama_forum_url !== undefined) {
+      updates.boursorama_forum_url = normalizeForumUrl(
+        body.boursorama_forum_url,
+        body.symbol ?? existing.symbol,
+      );
     }
     if (body.revenue_growth_yoy_pct !== undefined) {
       updates.revenue_growth_yoy_pct = parseNullableNumber(body.revenue_growth_yoy_pct);
@@ -570,7 +724,9 @@ router.put("/:id", async (req, res, next) => {
     if (body.quick_ratio !== undefined) {
       updates.quick_ratio = parseNullableNumber(body.quick_ratio);
     }
-    if (body.indicator_disabled !== undefined) {
+    if (isCustomApi) {
+      updates.indicator_disabled = true;
+    } else if (body.indicator_disabled !== undefined) {
       updates.indicator_disabled = asBoolean(body.indicator_disabled);
     }
 
@@ -648,10 +804,20 @@ router.put("/:id", async (req, res, next) => {
     }
 
     const doc = await positions.findOne({ _id: objectId });
+    if (!doc) {
+      return res.status(404).json({ detail: "Position not found" });
+    }
     const symbol = doc?.symbol ? String(doc.symbol).toUpperCase() : null;
-    const priceMap = symbol ? await getPrices([symbol]) : {};
+    let priceEntry = {};
+    if (doc.api_url) {
+      const series = await fetchCustomApiDailySeries(doc.api_url, doc.api_token);
+      priceEntry = computePriceEntryFromDailySeries(series);
+    } else {
+      const priceMap = symbol ? await getPrices([symbol]) : {};
+      priceEntry = priceMap[symbol] ?? {};
+    }
     const tagNames = await getTagNames(doc?.tags);
-    const response = enrichDocument(doc, priceMap[symbol] ?? {}, tagNames);
+    const response = enrichDocument(doc, priceEntry, tagNames);
     res.json(response);
   } catch (error) {
     next(error);
@@ -680,8 +846,13 @@ router.get("/summary", async (req, res, next) => {
   try {
     const { positions } = getCollections();
     const docs = await positions.find().limit(1000).toArray();
-    const symbols = uniqueUppercaseSymbols(docs);
-    const priceMap = await getPrices(symbols);
+    const apiDocs = docs.filter((doc) => Boolean(doc?.api_url));
+    const stockDocs = docs.filter((doc) => !doc?.api_url);
+    const symbols = uniqueUppercaseSymbols(stockDocs);
+    const [priceMap, apiPriceMap] = await Promise.all([
+      getPrices(symbols),
+      getCustomApiPricesForPositions(apiDocs),
+    ]);
 
     let totalMarketValue = 0;
     let totalUnrealisedPl = 0;
@@ -691,7 +862,8 @@ router.get("/summary", async (req, res, next) => {
         return;
       }
       const sym = String(doc.symbol || "").toUpperCase();
-      const priceEntry = priceMap[sym] ?? {};
+      const apiKey = doc?._id ? String(doc._id) : null;
+      const priceEntry = doc?.api_url && apiKey ? apiPriceMap[apiKey] ?? {} : priceMap[sym] ?? {};
       const current = priceEntry.current;
       if (current === null || current === undefined) {
         return;
@@ -716,8 +888,13 @@ router.get("/summary/debug", async (req, res, next) => {
   try {
     const { positions } = getCollections();
     const docs = await positions.find().limit(1000).toArray();
-    const symbols = uniqueUppercaseSymbols(docs);
-    const priceMap = await getPrices(symbols);
+    const apiDocs = docs.filter((doc) => Boolean(doc?.api_url));
+    const stockDocs = docs.filter((doc) => !doc?.api_url);
+    const symbols = uniqueUppercaseSymbols(stockDocs);
+    const [priceMap, apiPriceMap] = await Promise.all([
+      getPrices(symbols),
+      getCustomApiPricesForPositions(apiDocs),
+    ]);
 
     let total = 0;
     const rows = [];
@@ -727,7 +904,8 @@ router.get("/summary/debug", async (req, res, next) => {
       }
       const sym = String(doc.symbol || "").toUpperCase();
       const qty = normaliseNumber(doc.quantity);
-      const entry = priceMap[sym] ?? {};
+      const apiKey = doc?._id ? String(doc._id) : null;
+      const entry = doc?.api_url && apiKey ? apiPriceMap[apiKey] ?? {} : priceMap[sym] ?? {};
       const current = entry.current;
 
       if (current === null || current === undefined) {
@@ -736,7 +914,7 @@ router.get("/summary/debug", async (req, res, next) => {
           qty,
           used_price: null,
           subtotal: 0,
-          note: "missing live price",
+          note: doc?.api_url ? "missing live price (custom API)" : "missing live price",
         });
         return;
       }
@@ -762,8 +940,13 @@ router.get("/tags/summary", async (req, res, next) => {
   try {
     const { positions, tags } = getCollections();
     const docs = await positions.find().limit(1000).toArray();
-    const symbols = uniqueUppercaseSymbols(docs);
-    const priceMap = await getPrices(symbols);
+    const apiDocs = docs.filter((doc) => Boolean(doc?.api_url));
+    const stockDocs = docs.filter((doc) => !doc?.api_url);
+    const symbols = uniqueUppercaseSymbols(stockDocs);
+    const [priceMap, apiPriceMap] = await Promise.all([
+      getPrices(symbols),
+      getCustomApiPricesForPositions(apiDocs),
+    ]);
 
     const allTagIds = new Set();
     docs.forEach((doc) => ensureArray(doc.tags).forEach((tag) => allTagIds.add(String(tag))));
@@ -783,7 +966,8 @@ router.get("/tags/summary", async (req, res, next) => {
         return;
       }
       const sym = String(doc.symbol || "").toUpperCase();
-      const priceEntry = priceMap[sym] ?? {};
+      const apiKey = doc?._id ? String(doc._id) : null;
+      const priceEntry = doc?.api_url && apiKey ? apiPriceMap[apiKey] ?? {} : priceMap[sym] ?? {};
       const current = priceEntry.current;
       if (current === null || current === undefined) {
         return;
@@ -881,8 +1065,34 @@ router.get("/tags/timeseries", async (req, res, next) => {
       return res.json({ tags: {}, total: [] });
     }
 
-    const symbols = uniqueUppercaseSymbols(openPositions);
-    const historyMap = await getPriceHistory(symbols, { period, interval });
+    const openApiPositions = openPositions.filter((doc) => Boolean(doc?.api_url));
+    const openStockPositions = openPositions.filter((doc) => !doc?.api_url);
+
+    const symbols = uniqueUppercaseSymbols(openStockPositions);
+    const historyMap = symbols.length ? await getPriceHistory(symbols, { period, interval }) : {};
+
+    const apiHistoryMap = {};
+    if (openApiPositions.length) {
+      const startDate = resolveStartDate(period);
+      const pairs = await mapWithConcurrency(openApiPositions, 4, async (doc) => {
+        const apiKey = doc?._id ? String(doc._id) : null;
+        if (!apiKey || !doc?.api_url) {
+          return [apiKey, []];
+        }
+        const series = await fetchCustomApiDailySeries(doc.api_url, doc.api_token, { startDate });
+        const points = series.map((point) => ({
+          date: new Date(point.ts).toISOString().slice(0, 10),
+          close: point.value,
+        }));
+        return [apiKey, points];
+      });
+      pairs.forEach((pair) => {
+        const [apiKey, points] = pair || [];
+        if (apiKey) {
+          apiHistoryMap[apiKey] = Array.isArray(points) ? points : [];
+        }
+      });
+    }
 
     const tagIds = new Set();
     openPositions.forEach((doc) =>
@@ -900,7 +1110,8 @@ router.get("/tags/timeseries", async (req, res, next) => {
 
     openPositions.forEach((doc) => {
       const sym = String(doc.symbol || "").toUpperCase();
-      const history = historyMap[sym] ?? [];
+      const apiKey = doc?._id ? String(doc._id) : null;
+      const history = doc?.api_url && apiKey ? apiHistoryMap[apiKey] ?? [] : historyMap[sym] ?? [];
       const qty = normaliseNumber(doc.quantity);
       const cost = normaliseNumber(doc.cost_price);
       const purchaseDateCutoff =

@@ -88,7 +88,7 @@ function buildBarData(rows: PositionRow[]): BarDatum[] {
     .filter((row) => Number.isFinite(row.pnlValue))
     .map((row) => {
       const symbol = row.position.symbol;
-      const longName = row.position.long_name || null;
+      const longName = row.position.display_name || row.position.long_name || null;
       const label = symbol || row.position.id || longName || "Position";
       const qty = row.quantity;
       const eff = row.effectivePrice;

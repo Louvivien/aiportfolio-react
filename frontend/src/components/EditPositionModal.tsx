@@ -13,6 +13,10 @@ interface EditPositionModalProps {
 
 interface EditState {
   symbol: string;
+  displayName: string;
+  isCustomApi: boolean;
+  apiUrl: string;
+  apiToken: string;
   quantity: string;
   costPrice: string;
   isClosed: boolean;
@@ -31,6 +35,10 @@ interface EditState {
 
 const EMPTY_STATE: EditState = {
   symbol: "",
+  displayName: "",
+  isCustomApi: false,
+  apiUrl: "",
+  apiToken: "",
   quantity: "",
   costPrice: "",
   isClosed: false,
@@ -56,6 +64,7 @@ export function EditPositionModal({
 }: EditPositionModalProps) {
   const [state, setState] = useState<EditState>(EMPTY_STATE);
   const [error, setError] = useState<string | null>(null);
+  const [showApiToken, setShowApiToken] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
@@ -63,8 +72,13 @@ export function EditPositionModal({
       setState(EMPTY_STATE);
       return;
     }
+    const isCustomApi = Boolean(position.api_url);
     setState({
       symbol: position.symbol,
+      displayName: position.display_name ?? "",
+      isCustomApi,
+      apiUrl: position.api_url ?? "",
+      apiToken: "",
       quantity: String(position.quantity ?? ""),
       costPrice: String(position.cost_price ?? ""),
       isClosed: position.is_closed ?? false,
@@ -98,8 +112,9 @@ export function EditPositionModal({
         position.quick_ratio === null || position.quick_ratio === undefined
           ? ""
           : String(position.quick_ratio),
-      indicatorDisabled: Boolean(position.indicator_disabled),
+      indicatorDisabled: isCustomApi ? true : Boolean(position.indicator_disabled),
     });
+    setShowApiToken(false);
   }, [position]);
 
   if (!position) {
@@ -117,6 +132,18 @@ export function EditPositionModal({
       closingPrice: checked ? prev.closingPrice : "",
       closingDate: checked ? prev.closingDate || today : "",
     }));
+  };
+
+  const handleToggleCustomApi = (checked: boolean) => {
+    setState((prev) => ({
+      ...prev,
+      isCustomApi: checked,
+      indicatorDisabled: checked ? true : prev.indicatorDisabled,
+      apiUrl: checked ? prev.apiUrl : "",
+      apiToken: "",
+      forumUrl: checked ? "" : prev.forumUrl,
+    }));
+    setShowApiToken(false);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -145,6 +172,14 @@ export function EditPositionModal({
       return;
     }
 
+    const apiUrl = state.isCustomApi ? state.apiUrl.trim() : "";
+    const apiToken = state.apiToken.trim();
+    const displayName = state.displayName.trim();
+    if (state.isCustomApi && !apiUrl) {
+      setError("API URL is required for a custom API position.");
+      return;
+    }
+
     let closingValue: number | null | undefined = undefined;
     let closingDate: string | null = null;
     if (state.isClosed) {
@@ -163,6 +198,7 @@ export function EditPositionModal({
     }
 
     const forumUrlInput = state.forumUrl.trim();
+    const forumUrl = state.isCustomApi ? "" : forumUrlInput;
 
     const numbersEqual = (left: number | null, right: number | null) => {
       if (left === null || left === undefined) {
@@ -183,33 +219,54 @@ export function EditPositionModal({
       closing_date: closingDate,
       tags: state.tags,
       purchase_date: state.purchaseDate ? state.purchaseDate : null,
-      boursorama_forum_url: forumUrlInput ? forumUrlInput : null,
-      indicator_disabled: state.indicatorDisabled,
+      boursorama_forum_url: forumUrl ? forumUrl : null,
+      indicator_disabled: state.isCustomApi ? true : state.indicatorDisabled,
     };
 
-    const nextRevenueGrowth = parsePrice(state.revenueGrowth);
-    if (!numbersEqual(nextRevenueGrowth, position.revenue_growth_yoy_pct ?? null)) {
-      payload.revenue_growth_yoy_pct = nextRevenueGrowth;
+    const nextDisplayName = displayName ? displayName : null;
+    const prevDisplayName = position.display_name ?? null;
+    if (nextDisplayName !== prevDisplayName) {
+      payload.display_name = nextDisplayName;
     }
 
-    const nextPeRatio = parsePrice(state.peRatio);
-    if (!numbersEqual(nextPeRatio, position.pe_ratio ?? null)) {
-      payload.pe_ratio = nextPeRatio;
+    if (state.isCustomApi) {
+      const prevUrl = position.api_url ?? null;
+      if (apiUrl !== prevUrl) {
+        payload.api_url = apiUrl;
+      }
+      if (apiToken) {
+        payload.api_token = apiToken;
+      }
+    } else if (position.api_url) {
+      payload.api_url = null;
+      payload.api_token = null;
     }
 
-    const nextPegRatio = parsePrice(state.pegRatio);
-    if (!numbersEqual(nextPegRatio, position.peg_ratio ?? null)) {
-      payload.peg_ratio = nextPegRatio;
-    }
+    if (!state.isCustomApi) {
+      const nextRevenueGrowth = parsePrice(state.revenueGrowth);
+      if (!numbersEqual(nextRevenueGrowth, position.revenue_growth_yoy_pct ?? null)) {
+        payload.revenue_growth_yoy_pct = nextRevenueGrowth;
+      }
 
-    const nextRoe5yAvg = parsePrice(state.roe5yAvg);
-    if (!numbersEqual(nextRoe5yAvg, position.roe_5y_avg_pct ?? null)) {
-      payload.roe_5y_avg_pct = nextRoe5yAvg;
-    }
+      const nextPeRatio = parsePrice(state.peRatio);
+      if (!numbersEqual(nextPeRatio, position.pe_ratio ?? null)) {
+        payload.pe_ratio = nextPeRatio;
+      }
 
-    const nextQuickRatio = parsePrice(state.quickRatio);
-    if (!numbersEqual(nextQuickRatio, position.quick_ratio ?? null)) {
-      payload.quick_ratio = nextQuickRatio;
+      const nextPegRatio = parsePrice(state.pegRatio);
+      if (!numbersEqual(nextPegRatio, position.peg_ratio ?? null)) {
+        payload.peg_ratio = nextPegRatio;
+      }
+
+      const nextRoe5yAvg = parsePrice(state.roe5yAvg);
+      if (!numbersEqual(nextRoe5yAvg, position.roe_5y_avg_pct ?? null)) {
+        payload.roe_5y_avg_pct = nextRoe5yAvg;
+      }
+
+      const nextQuickRatio = parsePrice(state.quickRatio);
+      if (!numbersEqual(nextQuickRatio, position.quick_ratio ?? null)) {
+        payload.quick_ratio = nextQuickRatio;
+      }
     }
 
     try {
@@ -234,6 +291,75 @@ export function EditPositionModal({
           </button>
         </div>
         <form onSubmit={handleSubmit} className="form-grid">
+          <div className="input-row">
+            <label
+              htmlFor="edit-custom-api"
+              className="checkbox-row"
+              style={{ justifyContent: "flex-start" }}
+            >
+              <input
+                id="edit-custom-api"
+                type="checkbox"
+                checked={state.isCustomApi}
+                onChange={(event) => handleToggleCustomApi(event.target.checked)}
+                disabled={loading}
+              />
+              Custom API position
+            </label>
+            {state.isCustomApi && (
+              <p className="muted" style={{ marginTop: 6 }}>
+                Indicator is automatically disabled for custom API positions.
+              </p>
+            )}
+          </div>
+
+          {state.isCustomApi && (
+            <div className="grid two">
+              <div className="input-row">
+                <label htmlFor="edit-display-name">Display name</label>
+                <input
+                  id="edit-display-name"
+                  value={state.displayName}
+                  onChange={(event) => updateState("displayName", event.target.value)}
+                  placeholder="e.g. Mean Reversion (real money)"
+                  disabled={loading}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="edit-api-url">API URL</label>
+                <input
+                  id="edit-api-url"
+                  type="url"
+                  inputMode="url"
+                  value={state.apiUrl}
+                  onChange={(event) => updateState("apiUrl", event.target.value)}
+                  disabled={loading}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="edit-api-token">JWT (x-auth-token)</label>
+                <input
+                  id="edit-api-token"
+                  type={showApiToken ? "text" : "password"}
+                  value={state.apiToken}
+                  onChange={(event) => updateState("apiToken", event.target.value)}
+                  placeholder="Leave blank to keep the stored JWT"
+                  autoComplete="off"
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ marginTop: 8, width: "fit-content" }}
+                  onClick={() => setShowApiToken((prev) => !prev)}
+                  disabled={loading || !state.apiToken}
+                >
+                  {showApiToken ? "Hide JWT" : "Show JWT"}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid two">
             <div className="input-row">
               <label htmlFor="edit-symbol">Ticker Symbol</label>
@@ -316,7 +442,8 @@ export function EditPositionModal({
             </div>
           </div>
 
-          <div className="input-row">
+          {!state.isCustomApi && (
+            <div className="input-row">
             <div
               style={{
                 display: "flex",
@@ -402,7 +529,8 @@ export function EditPositionModal({
             <p className="muted" style={{ marginTop: 6 }}>
               Leave blank to keep missing; clear a field to remove its stored value.
             </p>
-          </div>
+            </div>
+          )}
 
           <div className="input-row">
             <label>Tags</label>
@@ -414,21 +542,23 @@ export function EditPositionModal({
             />
           </div>
 
-          <div className="input-row">
-            <label htmlFor="edit-boursorama-url">Boursorama forum URL</label>
-            <input
-              id="edit-boursorama-url"
-              type="url"
-              inputMode="url"
-              value={state.forumUrl}
-              onChange={(event) => updateState("forumUrl", event.target.value)}
-              placeholder="https://www.boursorama.com/bourse/forum/..."
-              disabled={loading}
-            />
-            <p className="muted" style={{ marginTop: 4 }}>
-              Leave blank to auto-detect from the symbol.
-            </p>
-          </div>
+          {!state.isCustomApi && (
+            <div className="input-row">
+              <label htmlFor="edit-boursorama-url">Boursorama forum URL</label>
+              <input
+                id="edit-boursorama-url"
+                type="url"
+                inputMode="url"
+                value={state.forumUrl}
+                onChange={(event) => updateState("forumUrl", event.target.value)}
+                placeholder="https://www.boursorama.com/bourse/forum/..."
+                disabled={loading}
+              />
+              <p className="muted" style={{ marginTop: 4 }}>
+                Leave blank to auto-detect from the symbol.
+              </p>
+            </div>
+          )}
 
           {error && <div className="error-text">{error}</div>}
 

@@ -37,7 +37,7 @@ function buildPieData(rows: PositionRow[]): PieDatum[] {
     .filter((row) => !row.isClosed)
     .map((row) => {
       const symbol = row.position.symbol;
-      const longName = row.position.long_name || null;
+      const longName = row.position.display_name || row.position.long_name || null;
       const label = symbol || row.position.id || longName || "Position";
       const value = Math.abs(row.isClosed ? row.invested : row.currentValue);
       return {

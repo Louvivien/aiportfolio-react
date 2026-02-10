@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import type { CreatePositionPayload } from "../api/types";
 import { parsePrice } from "../utils/format";
+import { parseAiPortfolioIntegrationLink } from "../utils/integration";
 import { TagInput } from "./TagInput";
 
 interface AddPositionFormProps {
@@ -11,8 +12,13 @@ interface AddPositionFormProps {
 
 const INITIAL_STATE = {
   symbol: "",
+  displayName: "",
   quantity: "",
   costPrice: "",
+  isCustomApi: false,
+  integrationLink: "",
+  apiUrl: "",
+  apiToken: "",
   closingPrice: "",
   closingDate: "",
   isClosed: false,
@@ -32,6 +38,7 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
   const [state, setState] = useState<FormState>(INITIAL_STATE);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [showApiToken, setShowApiToken] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
 
   const handleToggleClosed = (checked: boolean) => {
@@ -50,6 +57,41 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
   const reset = () => {
     setState(INITIAL_STATE);
     setError(null);
+    setShowApiToken(false);
+  };
+
+  const handleToggleCustomApi = (checked: boolean) => {
+    setState((prev) => ({
+      ...prev,
+      isCustomApi: checked,
+      indicatorDisabled: checked ? true : false,
+      integrationLink: checked ? prev.integrationLink : "",
+      displayName: checked ? prev.displayName : "",
+      apiUrl: checked ? prev.apiUrl : "",
+      apiToken: checked ? prev.apiToken : "",
+    }));
+  };
+
+  const handleApplyIntegrationLink = () => {
+    setError(null);
+    const parsed = parseAiPortfolioIntegrationLink(state.integrationLink);
+    if (!parsed) {
+      setError("Invalid integration link. Copy it again from TradingApp and try pasting it here.");
+      return;
+    }
+
+    setState((prev) => ({
+      ...prev,
+      isCustomApi: true,
+      indicatorDisabled: true,
+      symbol: parsed.symbol ? parsed.symbol.toUpperCase().trim() : prev.symbol,
+      quantity: parsed.quantity !== undefined ? String(parsed.quantity) : prev.quantity,
+      costPrice: parsed.cost_price !== undefined ? String(parsed.cost_price) : prev.costPrice,
+      tags: parsed.tags ? parsed.tags : prev.tags,
+      displayName: parsed.display_name ? parsed.display_name : prev.displayName,
+      apiUrl: parsed.api_url ? parsed.api_url : prev.apiUrl,
+      apiToken: parsed.api_token ? parsed.api_token : prev.apiToken,
+    }));
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -58,6 +100,14 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
 
     if (!state.symbol.trim()) {
       setError("Symbol is required.");
+      return;
+    }
+
+    const apiUrl = state.isCustomApi ? state.apiUrl.trim() : "";
+    const apiToken = state.isCustomApi ? state.apiToken.trim() : "";
+    const displayName = state.displayName.trim();
+    if (state.isCustomApi && !apiUrl) {
+      setError("API URL is required for a custom API position.");
       return;
     }
 
@@ -91,6 +141,9 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
 
     const payload: CreatePositionPayload = {
       symbol: state.symbol.toUpperCase().trim(),
+      display_name: state.isCustomApi ? (displayName ? displayName : null) : undefined,
+      api_url: state.isCustomApi ? apiUrl : undefined,
+      api_token: state.isCustomApi ? (apiToken ? apiToken : null) : undefined,
       quantity,
       cost_price: cost,
       tags: state.tags,
@@ -98,12 +151,12 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
       closing_price: closingValue,
       closing_date: closingDate,
       purchase_date: state.purchaseDate || undefined,
-      revenue_growth_yoy_pct: parsePrice(state.revenueGrowth),
-      pe_ratio: parsePrice(state.peRatio),
-      peg_ratio: parsePrice(state.pegRatio),
-      roe_5y_avg_pct: parsePrice(state.roe5yAvg),
-      quick_ratio: parsePrice(state.quickRatio),
-      indicator_disabled: state.indicatorDisabled,
+      revenue_growth_yoy_pct: state.isCustomApi ? undefined : parsePrice(state.revenueGrowth),
+      pe_ratio: state.isCustomApi ? undefined : parsePrice(state.peRatio),
+      peg_ratio: state.isCustomApi ? undefined : parsePrice(state.pegRatio),
+      roe_5y_avg_pct: state.isCustomApi ? undefined : parsePrice(state.roe5yAvg),
+      quick_ratio: state.isCustomApi ? undefined : parsePrice(state.quickRatio),
+      indicator_disabled: state.isCustomApi ? true : state.indicatorDisabled,
     };
 
     await onCreate(payload);
@@ -124,6 +177,100 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
       </div>
       {open ? (
         <form onSubmit={handleSubmit} className="form-grid" autoComplete="off">
+          <div className="input-row">
+            <label htmlFor="add-custom-api" className="checkbox-row" style={{ justifyContent: "flex-start" }}>
+              <input
+                id="add-custom-api"
+                type="checkbox"
+                checked={state.isCustomApi}
+                onChange={(event) => handleToggleCustomApi(event.target.checked)}
+                disabled={loading}
+              />
+              Custom API position (TradingApp strategy, Polymarket, etc.)
+            </label>
+            {state.isCustomApi && (
+              <p className="muted" style={{ marginTop: 6 }}>
+                This will store your JWT and send it to the API URL via the <code>x-auth-token</code> header.
+                Only use links from sources you trust.
+              </p>
+            )}
+          </div>
+
+          {state.isCustomApi && (
+            <div className="input-row">
+              <label htmlFor="add-integration-link">TradingApp / aiportfolio link</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input
+                  id="add-integration-link"
+                  value={state.integrationLink}
+                  onChange={(event) => updateField("integrationLink", event.target.value)}
+                  placeholder="aiportfolio://api-position?symbol=...&api_url=...&api_token=..."
+                  disabled={loading}
+                  style={{ flex: 1, minWidth: 240 }}
+                />
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={handleApplyIntegrationLink}
+                  disabled={loading || !state.integrationLink.trim()}
+                >
+                  Apply link
+                </button>
+              </div>
+              <p className="muted" style={{ marginTop: 6 }}>
+                In TradingApp click <strong>AI Portfolio</strong> on your strategy row to copy this link.
+              </p>
+            </div>
+          )}
+
+          {state.isCustomApi && (
+            <div className="grid two">
+              <div className="input-row">
+                <label htmlFor="add-display-name">Display name</label>
+                <input
+                  id="add-display-name"
+                  value={state.displayName}
+                  onChange={(event) => updateField("displayName", event.target.value)}
+                  placeholder="e.g. Mean Reversion (real money)"
+                  disabled={loading}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="add-api-url">API URL</label>
+                <input
+                  id="add-api-url"
+                  type="url"
+                  inputMode="url"
+                  value={state.apiUrl}
+                  onChange={(event) => updateField("apiUrl", event.target.value)}
+                  placeholder="https://your-tradingapp/api/strategies/equity/..."
+                  disabled={loading}
+                />
+              </div>
+              <div className="input-row">
+                <label htmlFor="add-api-token">JWT (x-auth-token)</label>
+                <input
+                  id="add-api-token"
+                  type={showApiToken ? "text" : "password"}
+                  value={state.apiToken}
+                  onChange={(event) => updateField("apiToken", event.target.value)}
+                  placeholder="Paste the JWT from TradingApp settings"
+                  autoComplete="off"
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ marginTop: 8, width: "fit-content" }}
+                  onClick={() => setShowApiToken((prev) => !prev)}
+                  disabled={loading || !state.apiToken}
+                >
+                  {showApiToken ? "Hide JWT" : "Show JWT"}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid two">
             <div className="input-row">
               <label htmlFor="add-symbol">Ticker Symbol</label>
@@ -131,7 +278,7 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
                 id="add-symbol"
                 value={state.symbol}
                 onChange={(event) => updateField("symbol", event.target.value)}
-                placeholder="AAPL"
+                placeholder={state.isCustomApi ? "STRAT_1234" : "AAPL"}
                 autoCapitalize="characters"
                 disabled={loading}
               />
@@ -207,7 +354,8 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
             </div>
           </div>
 
-          <div className="input-row">
+          {!state.isCustomApi && (
+            <div className="input-row">
             <div
               style={{
                 display: "flex",
@@ -293,7 +441,8 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
             <p className="muted" style={{ marginTop: 6 }}>
               Leave blank if the data is missing; the indicator will show a warning when inputs are incomplete.
             </p>
-          </div>
+            </div>
+          )}
 
           <div className="input-row">
             <label>Tags</label>

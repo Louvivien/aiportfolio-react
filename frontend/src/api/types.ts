@@ -28,6 +28,8 @@ export interface Position {
   id?: string;
   _id?: string;
   symbol: string;
+  display_name?: string | null;
+  api_url?: string | null;
   quantity: number;
   cost_price: number;
   current_price?: number | null;
@@ -104,6 +106,9 @@ export interface ForumPostsResponse {
 
 export interface CreatePositionPayload {
   symbol: string;
+  display_name?: string | null;
+  api_url?: string | null;
+  api_token?: string | null;
   quantity: number;
   cost_price: number;
   tags: string[];
@@ -122,6 +127,9 @@ export interface CreatePositionPayload {
 
 export interface UpdatePositionPayload {
   symbol?: string;
+  display_name?: string | null;
+  api_url?: string | null;
+  api_token?: string | null;
   quantity?: number;
   cost_price?: number;
   tags?: string[];

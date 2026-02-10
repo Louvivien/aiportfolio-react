@@ -154,7 +154,7 @@ const columnMeta: { key: SortableColumn; label: string }[] = [
 
 const comparatorMap: Record<SortableColumn, (row: PositionRow) => unknown> = {
   symbol: (row) => row.position.symbol.toUpperCase(),
-  name: (row) => (row.position.long_name || "").toUpperCase(),
+  name: (row) => (row.position.display_name || row.position.long_name || "").toUpperCase(),
   purchaseDate: (row) => {
     const value = row.position.purchase_date ?? row.position.created_at ?? null;
     if (!value) {
@@ -464,13 +464,15 @@ export function PositionsTable({
             <tbody>
               {sortedRows.map((row) => {
                 const { position } = row;
-                const currency = position.currency || "EUR";
+                const isCustomApi = Boolean(position.api_url);
+                const currency = position.currency || (isCustomApi ? "USD" : "EUR");
                 const tags = Array.isArray(position.tags) ? position.tags : [];
                 const symbolUpper = position.symbol.toUpperCase();
                 const yahooUrl = `https://finance.yahoo.com/quote/${encodeURIComponent(symbolUpper)}`;
                 const isEtf = tags.some((tag) => tag && tag.toUpperCase() === "ETF");
-                const boursoramaUrl =
-                  position.boursorama_forum_url || buildBoursoramaForumUrl(position.symbol);
+                const boursoramaUrl = isCustomApi
+                  ? null
+                  : position.boursorama_forum_url || buildBoursoramaForumUrl(position.symbol);
                 const showForumLink = Boolean(boursoramaUrl) && !isEtf;
                 const forumPreviewState = position.id ? forumPreviewMap[position.id] : undefined;
                 const isForumActive = activeForumId === position.id;
@@ -516,9 +518,20 @@ export function PositionsTable({
                   <tr key={position.id ?? position.symbol}>
                     {columns.symbol && (
                       <td>
-                        <a href={yahooUrl} target="_blank" rel="noreferrer" className="ticker-link">
-                          {position.symbol}
-                        </a>
+                        {isCustomApi && position.api_url ? (
+                          <a
+                            href={position.api_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="ticker-link"
+                          >
+                            {position.symbol}
+                          </a>
+                        ) : (
+                          <a href={yahooUrl} target="_blank" rel="noreferrer" className="ticker-link">
+                            {position.symbol}
+                          </a>
+                        )}
                         {showForumLink && (
                           <div className="forum-link-wrapper" {...(forumHandlers ?? {})}>
                             <a
@@ -543,7 +556,7 @@ export function PositionsTable({
                         {closed && <span className="badge closed">Closed</span>}
                       </td>
                     )}
-                    {columns.name && <td>{position.long_name || "—"}</td>}
+                    {columns.name && <td>{position.display_name || position.long_name || "—"}</td>}
                     {columns.purchaseDate && (
                       <td>{formatDate(position.purchase_date ?? position.created_at ?? null)}</td>
                     )}
@@ -866,7 +879,9 @@ function IndicatorModal({ detail, onClose }: IndicatorModalProps) {
             </div>
             <h3 style={{ margin: "4px 0 0" }}>
               {position.symbol}
-              {position.long_name ? ` — ${position.long_name}` : ""}
+              {position.display_name || position.long_name
+                ? ` — ${position.display_name || position.long_name}`
+                : ""}
             </h3>
           </div>
           <button type="button" className="btn secondary" onClick={onClose}>

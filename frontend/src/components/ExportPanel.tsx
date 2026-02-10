@@ -13,6 +13,8 @@ interface ExportPanelProps {
 const POSITION_COLUMNS = [
   "id",
   "symbol",
+  "display_name",
+  "api_url",
   "long_name",
   "purchase_date",
   "is_closed",
@@ -60,6 +62,8 @@ export function ExportPanel({ positions, rawPositions, tagSummary, totals }: Exp
       return {
         id: p.id ?? p._id ?? "",
         symbol: p.symbol,
+        display_name: p.display_name ?? "",
+        api_url: p.api_url ?? null,
         long_name: p.long_name ?? "",
         purchase_date: p.purchase_date ?? p.created_at ?? "",
         is_closed: Boolean(p.is_closed),
