@@ -3,6 +3,8 @@ const SERIES_CACHE_TTL_MS = 15_000;
 
 const seriesCache = new Map();
 const inflight = new Map();
+const portfoliosCache = new Map();
+const portfoliosInflight = new Map();
 
 function nowMs() {
   return Date.now();
@@ -53,6 +55,18 @@ function parseTimestamp(value) {
 
 function toIsoDateOnly(ms) {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+function buildAuthHeaders(apiToken) {
+  const headers = {
+    accept: "application/json",
+  };
+  const token = typeof apiToken === "string" ? apiToken.trim() : "";
+  if (token) {
+    headers["x-auth-token"] = token;
+    headers.authorization = `Bearer ${token}`;
+  }
+  return headers;
 }
 
 async function fetchWithTimeout(url, { timeoutMs = DEFAULT_TIMEOUT_MS, ...options } = {}) {
@@ -170,6 +184,125 @@ function findPointAtOrBefore(points, targetMs) {
   return best;
 }
 
+const TRADINGAPP_EQUITY_PATH_RE = /^\/api\/strategies\/equity\/([^/]+)\/([^/]+)\/?$/;
+
+function safeDecodeURIComponent(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function parseTradingAppEquityUrl(apiUrl) {
+  const trimmed = typeof apiUrl === "string" ? apiUrl.trim() : "";
+  if (!trimmed) {
+    return null;
+  }
+
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (!["http:", "https:"].includes(url.protocol)) {
+    return null;
+  }
+
+  const match = TRADINGAPP_EQUITY_PATH_RE.exec(url.pathname);
+  if (!match) {
+    return null;
+  }
+
+  const userId = match[1];
+  const strategyId = match[2];
+  if (!userId || !strategyId) {
+    return null;
+  }
+
+  return {
+    origin: url.origin,
+    userId,
+    strategyId,
+  };
+}
+
+async function fetchTradingAppPortfolioEquityMap(origin, userId, apiToken) {
+  if (!origin || !userId) {
+    return new Map();
+  }
+
+  const finalUrl = new URL(`/api/strategies/portfolios/${userId}`, origin).toString();
+  const cached = cacheGet(portfoliosCache, finalUrl, SERIES_CACHE_TTL_MS);
+  if (cached !== null) {
+    return cached;
+  }
+
+  if (portfoliosInflight.has(finalUrl)) {
+    return portfoliosInflight.get(finalUrl);
+  }
+
+  const promise = (async () => {
+    const headers = buildAuthHeaders(apiToken);
+    const json = await fetchJson(finalUrl, { headers });
+    const portfolios = Array.isArray(json?.portfolios) ? json.portfolios : [];
+
+    const map = new Map();
+    for (const portfolio of portfolios) {
+      const sid = portfolio?.strategy_id ? String(portfolio.strategy_id).trim() : "";
+      if (!sid) {
+        continue;
+      }
+      const currentValue = safeNumber(portfolio?.currentValue);
+      if (currentValue === null) {
+        continue;
+      }
+      const cashBuffer = safeNumber(portfolio?.cashBuffer) ?? 0;
+      const equityValue = currentValue + cashBuffer;
+      if (!Number.isFinite(equityValue)) {
+        continue;
+      }
+      map.set(sid, equityValue);
+    }
+
+    cacheSet(portfoliosCache, finalUrl, map);
+    return map;
+  })()
+    .catch(() => new Map())
+    .finally(() => portfoliosInflight.delete(finalUrl));
+
+  portfoliosInflight.set(finalUrl, promise);
+  return promise;
+}
+
+async function fetchTradingAppEquityFallback(apiUrl, apiToken) {
+  const parsed = parseTradingAppEquityUrl(apiUrl);
+  if (!parsed) {
+    return null;
+  }
+
+  const { origin, userId, strategyId } = parsed;
+  const equityMap = await fetchTradingAppPortfolioEquityMap(origin, userId, apiToken);
+
+  if (!equityMap || typeof equityMap.get !== "function") {
+    return null;
+  }
+
+  const decoded = safeDecodeURIComponent(strategyId);
+  const candidates = decoded === strategyId ? [strategyId] : [strategyId, decoded];
+
+  for (const candidate of candidates) {
+    const value = equityMap.get(candidate);
+    if (value !== undefined && value !== null) {
+      return safeNumber(value);
+    }
+  }
+
+  return null;
+}
+
 export function computePriceEntryFromDailySeries(
   points,
   { currency = "USD", intradayPoints = null } = {},
@@ -269,7 +402,7 @@ export async function fetchCustomApiDailySeries(apiUrl, apiToken, { startDate = 
 
   const finalUrl = url.toString();
   const cached = cacheGet(seriesCache, finalUrl, SERIES_CACHE_TTL_MS);
-  if (cached) {
+  if (cached !== null) {
     return cached;
   }
 
@@ -278,15 +411,7 @@ export async function fetchCustomApiDailySeries(apiUrl, apiToken, { startDate = 
   }
 
   const promise = (async () => {
-    const headers = {
-      accept: "application/json",
-    };
-    const token = typeof apiToken === "string" ? apiToken.trim() : "";
-    if (token) {
-      headers["x-auth-token"] = token;
-      headers.authorization = `Bearer ${token}`;
-    }
-
+    const headers = buildAuthHeaders(apiToken);
     const json = await fetchJson(finalUrl, { headers });
     const series = normaliseDailySeriesFromJson(json);
     cacheSet(seriesCache, finalUrl, series);
@@ -332,7 +457,7 @@ export async function fetchCustomApiIntradaySeries(
 
   const finalUrl = url.toString();
   const cached = cacheGet(seriesCache, finalUrl, SERIES_CACHE_TTL_MS);
-  if (cached) {
+  if (cached !== null) {
     return cached;
   }
 
@@ -341,15 +466,7 @@ export async function fetchCustomApiIntradaySeries(
   }
 
   const promise = (async () => {
-    const headers = {
-      accept: "application/json",
-    };
-    const token = typeof apiToken === "string" ? apiToken.trim() : "";
-    if (token) {
-      headers["x-auth-token"] = token;
-      headers.authorization = `Bearer ${token}`;
-    }
-
+    const headers = buildAuthHeaders(apiToken);
     const json = await fetchJson(finalUrl, { headers });
     const series = normalisePointSeriesFromJson(json, { maxPoints: 20_000 });
     cacheSet(seriesCache, finalUrl, series);
@@ -402,7 +519,18 @@ export async function getCustomApiPricesForPositions(docs) {
         fetchCustomApiIntradaySeries(item.apiUrl, item.apiToken, { startDate: intradayStart, limit: 5000 }),
       ]);
 
-      out[item.id] = computePriceEntryFromDailySeries(dailySeries, { intradayPoints: intradaySeries });
+      let priceEntry = computePriceEntryFromDailySeries(dailySeries, { intradayPoints: intradaySeries });
+      if (
+        priceEntry.current === null &&
+        (!dailySeries.length && !intradaySeries.length)
+      ) {
+        const fallbackEquity = await fetchTradingAppEquityFallback(item.apiUrl, item.apiToken);
+        if (fallbackEquity !== null) {
+          priceEntry = computePriceEntryFromDailySeries([{ ts: nowMs(), value: fallbackEquity }]);
+        }
+      }
+
+      out[item.id] = priceEntry;
     }
   });
 
