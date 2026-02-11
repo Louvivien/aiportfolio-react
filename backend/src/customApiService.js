@@ -100,7 +100,7 @@ function extractPointSeries(json) {
   return [];
 }
 
-function normaliseDailySeriesFromJson(json) {
+function normalisePointSeriesFromJson(json, { maxPoints = 10_000 } = {}) {
   const raw = extractPointSeries(json);
   const points = [];
 
@@ -129,6 +129,14 @@ function normaliseDailySeriesFromJson(json) {
   }
 
   points.sort((a, b) => a.ts - b.ts);
+  if (maxPoints > 0 && points.length > maxPoints) {
+    return points.slice(points.length - maxPoints);
+  }
+  return points;
+}
+
+function normaliseDailySeriesFromJson(json) {
+  const points = normalisePointSeriesFromJson(json);
 
   const byDay = new Map();
   for (const point of points) {
@@ -162,8 +170,14 @@ function findPointAtOrBefore(points, targetMs) {
   return best;
 }
 
-export function computePriceEntryFromDailySeries(points, { currency = "USD" } = {}) {
-  if (!Array.isArray(points) || !points.length) {
+export function computePriceEntryFromDailySeries(
+  points,
+  { currency = "USD", intradayPoints = null } = {},
+) {
+  const dailyPoints = Array.isArray(points) ? points : [];
+  const intraday = Array.isArray(intradayPoints) ? intradayPoints : null;
+
+  if (!dailyPoints.length && (!intraday || !intraday.length)) {
     return {
       current: null,
       previous_close: null,
@@ -176,9 +190,29 @@ export function computePriceEntryFromDailySeries(points, { currency = "USD" } = 
     };
   }
 
-  const last = points[points.length - 1];
-  const current = safeNumber(last.value);
-  const previousClose = points.length >= 2 ? safeNumber(points[points.length - 2].value) : null;
+  const currentSource = intraday && intraday.length ? intraday : dailyPoints;
+  const last = currentSource[currentSource.length - 1];
+  const current = safeNumber(last?.value);
+
+  // Calculate true intraday: find first point of today (UTC) from intraday points when available.
+  let previousClose = null;
+  const now = new Date();
+  const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+
+  if (intraday && intraday.length) {
+    for (const point of intraday) {
+      if (point.ts >= todayStartMs) {
+        previousClose = safeNumber(point.value);
+        break;
+      }
+    }
+    if (previousClose === null && intraday.length >= 2) {
+      previousClose = safeNumber(intraday[intraday.length - 2].value);
+    }
+  } else if (dailyPoints.length >= 2) {
+    // With daily points only, we can approximate the previous close as yesterday's close.
+    previousClose = safeNumber(dailyPoints[dailyPoints.length - 2].value);
+  }
 
   const change =
     current !== null && previousClose !== null ? current - previousClose : null;
@@ -190,8 +224,13 @@ export function computePriceEntryFromDailySeries(points, { currency = "USD" } = 
   const tenDaysMs = 10 * 24 * 60 * 60 * 1000;
   const yearMs = 365 * 24 * 60 * 60 * 1000;
 
-  const base10dPoint = findPointAtOrBefore(points, last.ts - tenDaysMs);
-  const base1yPoint = findPointAtOrBefore(points, last.ts - yearMs);
+  const dailyLast = dailyPoints.length ? dailyPoints[dailyPoints.length - 1] : last;
+  const base10dPoint = dailyPoints.length
+    ? findPointAtOrBefore(dailyPoints, dailyLast.ts - tenDaysMs)
+    : null;
+  const base1yPoint = dailyPoints.length
+    ? findPointAtOrBefore(dailyPoints, dailyLast.ts - yearMs)
+    : null;
   const price10d = base10dPoint ? safeNumber(base10dPoint.value) : null;
   const price1y = base1yPoint ? safeNumber(base1yPoint.value) : null;
 
@@ -260,6 +299,69 @@ export async function fetchCustomApiDailySeries(apiUrl, apiToken, { startDate = 
   return promise;
 }
 
+export async function fetchCustomApiIntradaySeries(
+  apiUrl,
+  apiToken,
+  { startDate = null, limit = null } = {},
+) {
+  const trimmed = typeof apiUrl === "string" ? apiUrl.trim() : "";
+  if (!trimmed) {
+    return [];
+  }
+
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return [];
+  }
+
+  if (!["http:", "https:"].includes(url.protocol)) {
+    return [];
+  }
+
+  if (startDate instanceof Date && !Number.isNaN(startDate.getTime())) {
+    url.searchParams.set("startDate", startDate.toISOString());
+  }
+  if (limit !== null && limit !== undefined && !url.searchParams.has("limit")) {
+    const parsed = Number(limit);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      url.searchParams.set("limit", String(Math.floor(parsed)));
+    }
+  }
+
+  const finalUrl = url.toString();
+  const cached = cacheGet(seriesCache, finalUrl, SERIES_CACHE_TTL_MS);
+  if (cached) {
+    return cached;
+  }
+
+  if (inflight.has(finalUrl)) {
+    return inflight.get(finalUrl);
+  }
+
+  const promise = (async () => {
+    const headers = {
+      accept: "application/json",
+    };
+    const token = typeof apiToken === "string" ? apiToken.trim() : "";
+    if (token) {
+      headers["x-auth-token"] = token;
+      headers.authorization = `Bearer ${token}`;
+    }
+
+    const json = await fetchJson(finalUrl, { headers });
+    const series = normalisePointSeriesFromJson(json, { maxPoints: 20_000 });
+    cacheSet(seriesCache, finalUrl, series);
+    return series;
+  })()
+    .catch(() => [])
+    .finally(() => inflight.delete(finalUrl));
+
+  inflight.set(finalUrl, promise);
+  return promise;
+}
+
 export async function getCustomApiPricesForPositions(docs) {
   const out = {};
   if (!Array.isArray(docs) || !docs.length) {
@@ -291,12 +393,19 @@ export async function getCustomApiPricesForPositions(docs) {
       const current = index;
       index += 1;
       const item = items[current];
-      const series = await fetchCustomApiDailySeries(item.apiUrl, item.apiToken);
-      out[item.id] = computePriceEntryFromDailySeries(series);
+      const now = new Date();
+      const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const intradayStart = new Date(todayStartMs - 36 * 60 * 60 * 1000);
+
+      const [dailySeries, intradaySeries] = await Promise.all([
+        fetchCustomApiDailySeries(item.apiUrl, item.apiToken),
+        fetchCustomApiIntradaySeries(item.apiUrl, item.apiToken, { startDate: intradayStart, limit: 5000 }),
+      ]);
+
+      out[item.id] = computePriceEntryFromDailySeries(dailySeries, { intradayPoints: intradaySeries });
     }
   });
 
   await Promise.all(workers);
   return out;
 }
-

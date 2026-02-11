@@ -4,6 +4,7 @@ import { getCollections } from "../db.js";
 import {
   computePriceEntryFromDailySeries,
   fetchCustomApiDailySeries,
+  fetchCustomApiIntradaySeries,
   getCustomApiPricesForPositions,
 } from "../customApiService.js";
 import { getPrices, getPriceHistory } from "../priceService.js";
@@ -580,8 +581,16 @@ router.post("/", async (req, res, next) => {
     let priceEntry = {};
     const symbol = inserted?.symbol ? String(inserted.symbol).toUpperCase() : null;
     if (inserted.api_url) {
-      const series = await fetchCustomApiDailySeries(inserted.api_url, inserted.api_token);
-      priceEntry = computePriceEntryFromDailySeries(series);
+      const now = new Date();
+      const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const intradayStart = new Date(todayStartMs - 36 * 60 * 60 * 1000);
+
+      const [series, intradaySeries] = await Promise.all([
+        fetchCustomApiDailySeries(inserted.api_url, inserted.api_token),
+        fetchCustomApiIntradaySeries(inserted.api_url, inserted.api_token, { startDate: intradayStart, limit: 5000 }),
+      ]);
+
+      priceEntry = computePriceEntryFromDailySeries(series, { intradayPoints: intradaySeries });
 
       if (body.purchase_date === undefined && series.length) {
         const inferred = new Date(series[0].ts);
@@ -810,8 +819,16 @@ router.put("/:id", async (req, res, next) => {
     const symbol = doc?.symbol ? String(doc.symbol).toUpperCase() : null;
     let priceEntry = {};
     if (doc.api_url) {
-      const series = await fetchCustomApiDailySeries(doc.api_url, doc.api_token);
-      priceEntry = computePriceEntryFromDailySeries(series);
+      const now = new Date();
+      const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const intradayStart = new Date(todayStartMs - 36 * 60 * 60 * 1000);
+
+      const [series, intradaySeries] = await Promise.all([
+        fetchCustomApiDailySeries(doc.api_url, doc.api_token),
+        fetchCustomApiIntradaySeries(doc.api_url, doc.api_token, { startDate: intradayStart, limit: 5000 }),
+      ]);
+
+      priceEntry = computePriceEntryFromDailySeries(series, { intradayPoints: intradaySeries });
     } else {
       const priceMap = symbol ? await getPrices([symbol]) : {};
       priceEntry = priceMap[symbol] ?? {};
