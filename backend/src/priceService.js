@@ -2,13 +2,12 @@ import yahooFinance from "yahoo-finance2";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const PRICE_CACHE_TTL_MS = 60_000;
+const PRICE_CACHE_FAILURE_TTL_MS = 10_000;
 const HISTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const RESOLUTION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CONCURRENCY = 4;
 
-// Some Yahoo endpoints (notably `query1.finance.yahoo.com/v8/finance/chart/*`) return 429 for
-// certain "realistic" desktop UA strings. A minimal UA (or none) is currently more reliable.
-const USER_AGENT = "Mozilla/5.0";
+const YAHOO_CHART_HOSTS = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
 
 const priceCache = new Map();
 const historyCache = new Map();
@@ -33,15 +32,21 @@ function cacheGet(map, key, ttlMs) {
   if (!entry) {
     return null;
   }
-  if (ttlMs > 0 && nowMs() - entry.ts > ttlMs) {
+  const effectiveTtlMs =
+    Number.isFinite(entry.ttlMs) && entry.ttlMs > 0 ? entry.ttlMs : ttlMs;
+  if (effectiveTtlMs > 0 && nowMs() - entry.ts > effectiveTtlMs) {
     map.delete(key);
     return null;
   }
   return entry.value;
 }
 
-function cacheSet(map, key, value) {
-  map.set(key, { ts: nowMs(), value });
+function cacheSet(map, key, value, ttlMs = null) {
+  const entry = { ts: nowMs(), value };
+  if (Number.isFinite(ttlMs) && ttlMs > 0) {
+    entry.ttlMs = ttlMs;
+  }
+  map.set(key, entry);
 }
 
 function safeNumber(value) {
@@ -88,14 +93,14 @@ async function fetchWithTimeout(url, { timeoutMs = DEFAULT_TIMEOUT_MS, ...option
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const mergedHeaders = {
+      Accept: "application/json,text/plain,*/*",
+      ...(options.headers || {}),
+    };
     return await fetch(url, {
       ...options,
       signal: controller.signal,
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "application/json,text/plain,*/*",
-        ...(options.headers || {}),
-      },
+      headers: mergedHeaders,
     });
   } finally {
     clearTimeout(timer);
@@ -131,6 +136,50 @@ async function fetchText(url, options) {
     throw error;
   }
   return text;
+}
+
+function toUnixSeconds(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return Math.floor(date.getTime() / 1000);
+}
+
+async function fetchYahooChartJson(symbol, params) {
+  const upper = String(symbol || "").toUpperCase().trim();
+  if (!upper) {
+    throw new Error("Missing symbol");
+  }
+  const search = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === "") {
+      return;
+    }
+    search.set(key, String(value));
+  });
+  const query = search.toString();
+
+  let lastError = null;
+  let sawRateLimit = false;
+  for (const host of YAHOO_CHART_HOSTS) {
+    const url = `https://${host}/v8/finance/chart/${encodeURIComponent(upper)}${
+      query ? `?${query}` : ""
+    }`;
+    try {
+      return await fetchJson(url);
+    } catch (error) {
+      lastError = error;
+      const status = typeof error?.status === "number" ? error.status : null;
+      if (status === 429) {
+        sawRateLimit = true;
+      }
+    }
+  }
+
+  if (sawRateLimit) {
+    yahooBlockedUntilMs = nowMs() + 15 * 60 * 1000;
+  }
+  throw lastError ?? new Error("Yahoo chart fetch failed");
 }
 
 function inferCurrencyFromSymbolId(symbolId) {
@@ -376,56 +425,62 @@ async function fetchYahooHistoryPoints(symbol, { period1, period2, interval }) {
   if (nowMs() < yahooBlockedUntilMs) {
     return [];
   }
+  const start = period1 instanceof Date ? period1 : null;
+  const end = period2 instanceof Date ? period2 : null;
+  if (!start || !end) {
+    return [];
+  }
+  const startSeconds = toUnixSeconds(start);
+  const endSeconds = toUnixSeconds(end);
+  if (!startSeconds || !endSeconds) {
+    return [];
+  }
   try {
-    const history = await yahooFinance.historical(symbol, {
-      period1,
-      period2,
+    const data = await fetchYahooChartJson(symbol, {
       interval,
+      period1: startSeconds,
+      period2: endSeconds,
+      events: "history",
+      includeAdjustedClose: "true",
     });
-
-    if (!history?.length) {
+    const result = data?.chart?.result?.[0];
+    if (!result) {
+      return [];
+    }
+    const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
+    const adjClose = result?.indicators?.adjclose?.[0]?.adjclose;
+    const closeSeries = Array.isArray(adjClose)
+      ? adjClose
+      : result?.indicators?.quote?.[0]?.close;
+    if (!Array.isArray(closeSeries) || !timestamps.length) {
       return [];
     }
 
     const points = [];
-    for (const entry of history) {
-      const close = safeNumber(
-        entry?.adjClose ??
-          entry?.adjustedClose ??
-          entry?.close ??
-          entry?.AdjClose ??
-          entry?.Close,
-      );
-      if (close === null) {
+    const length = Math.min(timestamps.length, closeSeries.length);
+    for (let index = 0; index < length; index += 1) {
+      const ts = safeNumber(timestamps[index]);
+      const close = safeNumber(closeSeries[index]);
+      if (ts === null || close === null) {
         continue;
       }
-      const dateObj =
-        entry?.date instanceof Date
-          ? entry.date
-          : entry?.Date instanceof Date
-            ? entry.Date
-            : new Date(entry?.date || entry?.Date || entry?.timestamp || entry?.DateTime);
-      if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) {
+      const dateObj = new Date(ts * 1000);
+      if (Number.isNaN(dateObj.getTime())) {
         continue;
       }
-      const date = dateObj.toISOString().slice(0, 10);
-      points.push({ date, close });
+      points.push({ date: dateObj.toISOString().slice(0, 10), close });
     }
+
     points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     return points;
-  } catch (error) {
-    const message = String(error?.message || "");
-    if (message.includes("Too Many Requests") || message.includes("429")) {
-      yahooBlockedUntilMs = nowMs() + 15 * 60 * 1000;
-    }
+  } catch {
     return [];
   }
 }
 
 async function fetchYahooChartApi(symbol) {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
-    const data = await fetchJson(url, { headers: { 'User-Agent': USER_AGENT } });
+    const data = await fetchYahooChartJson(symbol, { interval: "1d", range: "1d" });
     const result = data?.chart?.result?.[0];
     if (!result) {
       console.log(`[YahooChart] No result for ${symbol}`);
@@ -579,6 +634,24 @@ function emptyPriceEntry() {
   };
 }
 
+function isEmptyPrice(entry) {
+  if (!entry || typeof entry !== "object") {
+    return true;
+  }
+  return (
+    entry.current === 0 &&
+    entry.previous_close === null &&
+    entry.change === null &&
+    entry.change_pct === null &&
+    entry.long_name === null &&
+    entry.currency === null &&
+    entry.price_10d === null &&
+    entry.change_10d_pct === null &&
+    entry.price_1y === null &&
+    entry.change_1y_pct === null
+  );
+}
+
 async function resolveAndFetchPrice(symbol) {
   const upper = String(symbol || "").toUpperCase().trim();
   if (!upper) {
@@ -620,8 +693,7 @@ async function resolveAndFetchPrice(symbol) {
       let price1y = null;
       try {
         // Use direct chart API for funds (more reliable than library)
-        const histUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(upper)}?interval=1d&range=1mo`;
-        const histData = await fetchJson(histUrl, { headers: { 'User-Agent': USER_AGENT } });
+        const histData = await fetchYahooChartJson(upper, { interval: "1d", range: "1mo" });
         const histResult = histData?.chart?.result?.[0];
         if (histResult) {
           const closes = histResult.indicators?.quote?.[0]?.close?.filter((c) => c !== null) || [];
@@ -848,7 +920,12 @@ export async function getPrices(symbols) {
     });
     for (const [symbol, entry] of fetched) {
       results[symbol] = entry;
-      cacheSet(priceCache, symbol, entry);
+      cacheSet(
+        priceCache,
+        symbol,
+        entry,
+        isEmptyPrice(entry) ? PRICE_CACHE_FAILURE_TTL_MS : PRICE_CACHE_TTL_MS,
+      );
     }
   }
 
