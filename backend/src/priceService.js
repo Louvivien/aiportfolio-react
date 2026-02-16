@@ -6,8 +6,9 @@ const HISTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const RESOLUTION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CONCURRENCY = 4;
 
-const USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+// Some Yahoo endpoints (notably `query1.finance.yahoo.com/v8/finance/chart/*`) return 429 for
+// certain "realistic" desktop UA strings. A minimal UA (or none) is currently more reliable.
+const USER_AGENT = "Mozilla/5.0";
 
 const priceCache = new Map();
 const historyCache = new Map();
