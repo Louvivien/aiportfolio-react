@@ -326,25 +326,31 @@ export function computePriceEntryFromDailySeries(
   const currentSource = intraday && intraday.length ? intraday : dailyPoints;
   const last = currentSource[currentSource.length - 1];
   const current = safeNumber(last?.value);
+  const currentTs = safeNumber(last?.ts);
 
-  // Calculate true intraday: find first point of today (UTC) from intraday points when available.
   let previousClose = null;
   const now = new Date();
   const todayStartMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const hasCurrentToday = currentTs !== null && currentTs >= todayStartMs;
 
-  if (intraday && intraday.length) {
-    for (const point of intraday) {
-      if (point.ts >= todayStartMs) {
-        previousClose = safeNumber(point.value);
-        break;
+  // Calculate intraday only when the latest datapoint is from today (UTC).
+  // This prevents reporting stale "intraday" moves when the series hasn't updated for days.
+  if (hasCurrentToday) {
+    // Calculate true intraday: find first point of today (UTC) from intraday points when available.
+    if (intraday && intraday.length) {
+      for (const point of intraday) {
+        if (point.ts >= todayStartMs) {
+          previousClose = safeNumber(point.value);
+          break;
+        }
       }
+      if (previousClose === null && intraday.length >= 2) {
+        previousClose = safeNumber(intraday[intraday.length - 2].value);
+      }
+    } else if (dailyPoints.length >= 2) {
+      // With daily points only, we can approximate the previous close as yesterday's close.
+      previousClose = safeNumber(dailyPoints[dailyPoints.length - 2].value);
     }
-    if (previousClose === null && intraday.length >= 2) {
-      previousClose = safeNumber(intraday[intraday.length - 2].value);
-    }
-  } else if (dailyPoints.length >= 2) {
-    // With daily points only, we can approximate the previous close as yesterday's close.
-    previousClose = safeNumber(dailyPoints[dailyPoints.length - 2].value);
   }
 
   const change =
@@ -520,13 +526,29 @@ export async function getCustomApiPricesForPositions(docs) {
       ]);
 
       let priceEntry = computePriceEntryFromDailySeries(dailySeries, { intradayPoints: intradaySeries });
-      if (
-        priceEntry.current === null &&
-        (!dailySeries.length && !intradaySeries.length)
-      ) {
-        const fallbackEquity = await fetchTradingAppEquityFallback(item.apiUrl, item.apiToken);
-        if (fallbackEquity !== null) {
-          priceEntry = computePriceEntryFromDailySeries([{ ts: nowMs(), value: fallbackEquity }]);
+
+      const tradingAppEquity = await fetchTradingAppEquityFallback(item.apiUrl, item.apiToken);
+      if (tradingAppEquity !== null) {
+        const liveValue = safeNumber(tradingAppEquity);
+        if (liveValue !== null) {
+          const computedPrevious = safeNumber(priceEntry.previous_close);
+          const snapshotValue = safeNumber(priceEntry.current);
+          const previous =
+            computedPrevious !== null && computedPrevious !== 0
+              ? computedPrevious
+              : snapshotValue !== null && snapshotValue !== 0
+                ? snapshotValue
+                : null;
+          const change = previous !== null ? liveValue - previous : null;
+          const changePct = previous !== null ? ((liveValue / previous) - 1) * 100 : null;
+
+          priceEntry = {
+            ...priceEntry,
+            current: liveValue,
+            previous_close: previous,
+            change,
+            change_pct: changePct,
+          };
         }
       }
 
