@@ -697,6 +697,14 @@ async function resolveAndFetchPrice(symbol) {
       let price1y = null;
       let longName = longNameFromHtml;
       let resolvedCurrency = currencyMatch?.[1] ?? null;
+
+      if (!longName || !resolvedCurrency) {
+        const chartMeta = await fetchYahooChartApi(upper);
+        if (chartMeta) {
+          longName = chartMeta.long_name ?? longName;
+          resolvedCurrency = chartMeta.currency ?? resolvedCurrency;
+        }
+      }
       try {
         // Use direct chart API for funds (more reliable than library)
         const histData = await fetchYahooChartJson(upper, { interval: "1d", range: "1mo" });
