@@ -665,6 +665,10 @@ async function resolveAndFetchPrice(symbol) {
     )}/`;
     try {
       const html = await fetchText(url, { headers: { Accept: "text/html,*/*" } });
+      const nameMatch = html.match(/c-faceplate__company-link[^>]*>\\s*([^<]+)</i);
+      const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+      const longNameFromHtml =
+        nameMatch?.[1]?.trim() ?? titleMatch?.[1]?.split(" - ")?.[0]?.trim() ?? null;
       const priceMatch = html.match(/data-ist-last[^>]*>([^<]+)</i);
       const variationMatch = html.match(/data-ist-variation[^>]*>([^<]+)</i);
       const currencyMatch = html.match(/c-faceplate__price-currency[^>]*>\\s*([A-Z]{3})\\s*</i);
@@ -691,11 +695,16 @@ async function resolveAndFetchPrice(symbol) {
       // Fetch historical NAV data from Yahoo Finance for 10-day and 1-year changes
       let price10d = null;
       let price1y = null;
+      let longName = longNameFromHtml;
+      let resolvedCurrency = currencyMatch?.[1] ?? null;
       try {
         // Use direct chart API for funds (more reliable than library)
         const histData = await fetchYahooChartJson(upper, { interval: "1d", range: "1mo" });
         const histResult = histData?.chart?.result?.[0];
         if (histResult) {
+          const meta = histResult?.meta;
+          longName = meta?.longName ?? meta?.shortName ?? longName;
+          resolvedCurrency = meta?.currency ?? resolvedCurrency;
           const closes = histResult.indicators?.quote?.[0]?.close?.filter((c) => c !== null) || [];
           if (closes.length > 0) {
             price10d = extractPrice10dFromCloses(closes);
@@ -721,8 +730,8 @@ async function resolveAndFetchPrice(symbol) {
         previous_close: previous,
         change,
         change_pct: changePct,
-        long_name: null,
-        currency: currencyMatch?.[1] ?? "EUR",
+        long_name: longName,
+        currency: resolvedCurrency ?? "EUR",
         price_10d: price10d,
         change_10d_pct: change10dPct,
         price_1y: price1y,
