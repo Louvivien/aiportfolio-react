@@ -2,6 +2,7 @@ import axios from "axios";
 import type {
   CreatePositionPayload,
   ForumPostsResponse,
+  NewsAgendaResponse,
   PortfolioSummary,
   Position,
   Tag,
@@ -96,4 +97,8 @@ export function fetchForumPostsForPosition(id: string): Promise<ForumPostsRespon
   return unwrap(client.get<ForumPostsResponse>(`/positions/${id}/forum/posts`));
 }
 
-export type { TagTimeseriesResponse, TimeseriesPoint, ForumPostsResponse };
+export function fetchNewsAgenda(): Promise<NewsAgendaResponse> {
+  return unwrap(client.get<NewsAgendaResponse>("/positions/news-agenda"));
+}
+
+export type { TagTimeseriesResponse, TimeseriesPoint, ForumPostsResponse, NewsAgendaResponse };

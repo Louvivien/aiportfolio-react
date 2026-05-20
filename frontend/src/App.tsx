@@ -8,6 +8,7 @@ import TimeseriesPanel from "./components/TimeseriesPanel";
 import TotalsPanel from "./components/TotalsPanel";
 import PositionsPie from "./components/PositionsPie";
 import PositionsPnLBar from "./components/PositionsPnLBar";
+import NewsAgendaPanel from "./components/NewsAgendaPanel";
 import {
   createPosition,
   deletePosition,
@@ -426,6 +427,8 @@ function App() {
         showClosed={showClosed}
         onToggleShowClosed={setShowClosed}
       />
+
+      <NewsAgendaPanel positions={positions} loading={loading} />
 
       <AddPositionForm
         onCreate={handleCreate}

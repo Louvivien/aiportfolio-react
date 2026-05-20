@@ -104,6 +104,39 @@ export interface ForumPostsResponse {
   posts: ForumPost[];
 }
 
+export interface PortfolioNewsItem {
+  id: string;
+  title: string;
+  date: string;
+  symbols: string[];
+  publisher: string | null;
+  url: string | null;
+  source: string | null;
+}
+
+export interface PortfolioAgendaItem {
+  id: string;
+  title: string;
+  date: string;
+  end_date: string | null;
+  symbols: string[];
+  event_type: string;
+  source: string | null;
+  url: string | null;
+  company_name?: string | null;
+  time_label?: string | null;
+  details?: string[];
+}
+
+export interface NewsAgendaResponse {
+  generated_at: string;
+  symbols: string[];
+  news: PortfolioNewsItem[];
+  agenda: PortfolioAgendaItem[];
+  deduped_count: number;
+  errors?: Record<string, string>;
+}
+
 export interface CreatePositionPayload {
   symbol: string;
   display_name?: string | null;

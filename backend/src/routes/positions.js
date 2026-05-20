@@ -10,6 +10,7 @@ import {
 import { getPrices, getPriceHistory } from "../priceService.js";
 import { fetchForumPosts } from "../forumService.js";
 import { FUNDAMENTALS_CACHE_TTL_MS, getFundamentalsSnapshot } from "../fundamentalsService.js";
+import { getNewsAgendaForSymbols } from "../newsAgendaService.js";
 import {
   asBoolean,
   ensureArray,
@@ -73,6 +74,14 @@ const parseNullableNumber = (value) => {
   }
   const num = normaliseNumber(value, NaN);
   return Number.isFinite(num) ? num : null;
+};
+
+const parseQueryNumber = (value, fallback, min, max) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.floor(parsed)));
 };
 
 const FUNDAMENTALS_VERSION = 2;
@@ -604,6 +613,28 @@ router.post("/", async (req, res, next) => {
     const tagNames = await getTagNames(inserted?.tags);
     const response = enrichDocument(inserted, priceEntry, tagNames);
     res.status(201).json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/news-agenda", async (req, res, next) => {
+  try {
+    const { positions } = getCollections();
+    const includeClosed = req.query.includeClosed === "true";
+    const docs = await positions.find().limit(1000).toArray();
+    const stockDocs = docs.filter(
+      (doc) => !doc?.api_url && (includeClosed || !asBoolean(doc?.is_closed)),
+    );
+    const symbols = uniqueUppercaseSymbols(stockDocs);
+
+    const result = await getNewsAgendaForSymbols(symbols, {
+      newsPerSymbol: parseQueryNumber(req.query.newsPerSymbol, 8, 1, 10),
+      newsLimit: parseQueryNumber(req.query.newsLimit, 100, 1, 100),
+      newsDaysBack: parseQueryNumber(req.query.newsDaysBack, 30, 1, 365),
+      daysAhead: parseQueryNumber(req.query.daysAhead, 62, 1, 730),
+    });
+    res.json(result);
   } catch (error) {
     next(error);
   }
