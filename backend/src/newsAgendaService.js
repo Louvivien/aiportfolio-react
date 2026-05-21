@@ -323,6 +323,31 @@ function boursoramaNewsUrl(symbol) {
   return null;
 }
 
+function boursoramaQuoteUrl(symbol) {
+  const upper = cleanSymbol(symbol);
+  const id =
+    BOURSORAMA_NEWS_IDS_BY_SYMBOL.get(upper) ||
+    BOURSORAMA_NEWS_IDS_BY_SYMBOL.get(symbolWithoutMarketSuffix(upper));
+  if (id) {
+    return `${BOURSORAMA_BASE_URL}/cours/${encodeURIComponent(id)}/`;
+  }
+
+  const base = symbolWithoutMarketSuffix(upper);
+  if (!base) {
+    return null;
+  }
+  if (upper.endsWith(".PA")) {
+    return `${BOURSORAMA_BASE_URL}/cours/1rP${encodeURIComponent(base)}/`;
+  }
+  if (upper.endsWith(".DE") || upper.endsWith(".F")) {
+    return `${BOURSORAMA_BASE_URL}/cours/1z${encodeURIComponent(base)}/`;
+  }
+  if (/^[A-Z0-9-]+$/.test(base)) {
+    return `${BOURSORAMA_BASE_URL}/cours/${encodeURIComponent(base)}/`;
+  }
+  return null;
+}
+
 function absoluteBoursoramaUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -520,6 +545,110 @@ async function fetchBoursoramaNews(symbol, limit) {
   });
 
   return items;
+}
+
+function parseBoursoramaAgendaStart(value) {
+  const raw = cleanDisplayText(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/.exec(raw);
+  if (!match) {
+    return null;
+  }
+  const [, year, month, day, hour, minute, second = "00"] = match;
+  return {
+    date: `${year}-${month}-${day}`,
+    timeLabel: hour === "00" && minute === "00" ? null : `${hour}:${minute}`,
+    iso: toIsoDateTime(`${year}-${month}-${day}T${hour}:${minute}:${second}+02:00`),
+  };
+}
+
+function mapBoursoramaAgendaEventType(name) {
+  const normalized = normalizeText(name);
+  if (normalized.includes("détachement dividendes")) {
+    return "ex_dividend";
+  }
+  if (normalized.includes("paiement dividendes")) {
+    return "dividend";
+  }
+  if (normalized.includes("assemblée générale annuelle")) {
+    return "annual_meeting";
+  }
+  if (normalized.includes("assemblée générale")) {
+    return "shareholder_meeting";
+  }
+  if (normalized.includes("résultats")) {
+    return "earnings";
+  }
+  if (normalized.includes("chiffre d'affaires")) {
+    return "sales_update";
+  }
+  return "event";
+}
+
+async function fetchBoursoramaAgenda(symbol, start, end) {
+  const url = boursoramaQuoteUrl(symbol);
+  if (!url) {
+    return [];
+  }
+
+  const html = await fetchText(url, {
+    headers: {
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.6",
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36",
+    },
+  });
+  const $ = cheerio.load(html);
+  const companyName = cleanDisplayText($("meta[property='og:title']").attr("content")).split(" - ")[0] || null;
+  const events = [];
+
+  $("script[type='application/ld+json']").each((_, element) => {
+    const raw = $(element).html();
+    if (!raw || !raw.includes("BusinessEvent")) {
+      return undefined;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return undefined;
+    }
+
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    items.forEach((item) => {
+      if (item?.["@type"] !== "BusinessEvent") {
+        return;
+      }
+
+      const title = cleanDisplayText(item?.name);
+      const description = truncateText(item?.description);
+      const parsedStart = parseBoursoramaAgendaStart(item?.startDate);
+      if (!title || !parsedStart?.date || !isDateBetween(parsedStart.date, start, end)) {
+        return;
+      }
+
+      events.push({
+        id: `agenda:${symbol}:${mapBoursoramaAgendaEventType(title)}:${parsedStart.date}:boursorama:${normalizeText(title)}`,
+        title,
+        date: parsedStart.date,
+        end_date: null,
+        symbols: [symbol],
+        event_type: mapBoursoramaAgendaEventType(title),
+        source: "Boursorama",
+        url,
+        company_name: companyName,
+        time_label: parsedStart.timeLabel,
+        details: mergeTextList(
+          companyName ? [`Société: ${companyName}`] : [],
+          description ? [description] : [],
+        ),
+      });
+    });
+    return undefined;
+  });
+
+  return events;
 }
 
 function isNasdaqEligibleSymbol(symbol) {
@@ -861,6 +990,7 @@ async function fetchSymbolNewsAgenda(symbol, options, start, end) {
     summaryResult,
     googleNewsResult,
     boursoramaNewsResult,
+    boursoramaAgendaResult,
     nasdaqResult,
     zonebourseResult,
   ] = await Promise.allSettled([
@@ -879,6 +1009,7 @@ async function fetchSymbolNewsAgenda(symbol, options, start, end) {
     ),
     fetchGoogleNews(symbol, options.newsPerSymbol),
     fetchBoursoramaNews(symbol, options.newsPerSymbol),
+    fetchBoursoramaAgenda(symbol, start, end),
     fetchNasdaqEarningsAgenda(symbol, start, end),
     fetchZonebourseAgenda(symbol, start, end),
   ]);
@@ -889,6 +1020,8 @@ async function fetchSymbolNewsAgenda(symbol, options, start, end) {
   const googleNews = googleNewsResult.status === "fulfilled" ? googleNewsResult.value : [];
   const boursoramaNews =
     boursoramaNewsResult.status === "fulfilled" ? boursoramaNewsResult.value : [];
+  const boursoramaAgenda =
+    boursoramaAgendaResult.status === "fulfilled" ? boursoramaAgendaResult.value : [];
   const nasdaqAgenda = nasdaqResult.status === "fulfilled" ? nasdaqResult.value : [];
   const zonebourseAgenda = zonebourseResult.status === "fulfilled" ? zonebourseResult.value : [];
 
@@ -902,10 +1035,19 @@ async function fetchSymbolNewsAgenda(symbol, options, start, end) {
     .filter((item) => item && isDateBetween(item.date, newsCutoff, end));
   const yahooAgenda = removeFallbackAgendaDuplicates(
     extractAgenda(symbol, quote, summary, start, end),
-    zonebourseAgenda,
+    [...boursoramaAgenda, ...zonebourseAgenda],
   );
-  const filteredNasdaqAgenda = removeFallbackAgendaDuplicates(nasdaqAgenda, zonebourseAgenda);
-  const agenda = [...zonebourseAgenda, ...yahooAgenda, ...filteredNasdaqAgenda];
+  const zonebourseFallbackAgenda = removeFallbackAgendaDuplicates(zonebourseAgenda, boursoramaAgenda);
+  const filteredNasdaqAgenda = removeFallbackAgendaDuplicates(
+    nasdaqAgenda,
+    [...boursoramaAgenda, ...zonebourseAgenda],
+  );
+  const agenda = [
+    ...boursoramaAgenda,
+    ...zonebourseFallbackAgenda,
+    ...yahooAgenda,
+    ...filteredNasdaqAgenda,
+  ];
   const hasAnyData = news.length > 0 || agenda.length > 0;
 
   return {
@@ -918,6 +1060,7 @@ async function fetchSymbolNewsAgenda(symbol, options, start, end) {
       summaryResult.status === "rejected" &&
       googleNewsResult.status === "rejected" &&
       boursoramaNewsResult.status === "rejected" &&
+      boursoramaAgendaResult.status === "rejected" &&
       nasdaqResult.status === "rejected" &&
       zonebourseResult.status === "rejected"
         ? "No market data available"
