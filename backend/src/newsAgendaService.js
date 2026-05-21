@@ -7,7 +7,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 const DEFAULT_NEWS_PER_SYMBOL = 8;
 const DEFAULT_NEWS_LIMIT = 100;
-const DEFAULT_NEWS_DAYS_BACK = 30;
+const DEFAULT_NEWS_DAYS_BACK = 14;
 const DEFAULT_DAYS_AHEAD = 62;
 
 const cache = new Map();

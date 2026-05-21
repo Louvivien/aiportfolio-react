@@ -631,7 +631,7 @@ router.get("/news-agenda", async (req, res, next) => {
     const result = await getNewsAgendaForSymbols(symbols, {
       newsPerSymbol: parseQueryNumber(req.query.newsPerSymbol, 8, 1, 10),
       newsLimit: parseQueryNumber(req.query.newsLimit, 100, 1, 100),
-      newsDaysBack: parseQueryNumber(req.query.newsDaysBack, 30, 1, 365),
+      newsDaysBack: parseQueryNumber(req.query.newsDaysBack, 14, 1, 365),
       daysAhead: parseQueryNumber(req.query.daysAhead, 62, 1, 730),
     });
     res.json(result);
