@@ -39,6 +39,7 @@ const sortableColumns: SortableColumn[] = [
   "purchaseDate",
   "quantity",
   "cost",
+  "stop",
   "current",
   "invest",
   "value",

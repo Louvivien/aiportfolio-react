@@ -6,6 +6,7 @@ export interface PositionRow {
   effectivePrice: number;
   quantity: number;
   cost: number;
+  stopPrice: number | null;
   invested: number;
   currentValue: number;
   pnlValue: number;
@@ -68,6 +69,8 @@ const median = (values: number[]): number => {
   return sorted[midpoint];
 };
 
+const STOP_LOSS_AMOUNT = 100;
+
 export interface PortfolioComputation {
   rows: PositionRow[];
   ranges: RangeStats;
@@ -105,6 +108,7 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
     const oneYearEligible = !isClosed || (closedAt !== null && closedAt >= oneYearAgo);
     const quantity = toNumber(position.quantity);
     const cost = toNumber(position.cost_price);
+    const stopPrice = quantity !== 0 ? Math.max(0, cost - STOP_LOSS_AMOUNT / quantity) : null;
     const invested = quantity * cost;
 
     const closingPrice = position.closing_price;
@@ -213,6 +217,7 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
       effectivePrice,
       quantity,
       cost,
+      stopPrice,
       invested,
       currentValue,
       pnlValue,

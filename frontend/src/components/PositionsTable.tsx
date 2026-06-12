@@ -38,6 +38,7 @@ type PositionsColumns = {
   purchaseDate: boolean;
   quantity: boolean;
   cost: boolean;
+  stop: boolean;
   current: boolean;
   invest: boolean;
   value: boolean;
@@ -58,6 +59,7 @@ export type SortableColumn =
   | "purchaseDate"
   | "quantity"
   | "cost"
+  | "stop"
   | "current"
   | "invest"
   | "value"
@@ -100,6 +102,7 @@ const DEFAULT_COLUMNS: PositionsColumns = {
   purchaseDate: true,
   quantity: true,
   cost: true,
+  stop: true,
   current: true,
   invest: true,
   value: true,
@@ -139,6 +142,7 @@ const columnMeta: { key: SortableColumn; label: string }[] = [
   { key: "purchaseDate", label: "Bought" },
   { key: "quantity", label: "Qty" },
   { key: "cost", label: "Cost" },
+  { key: "stop", label: "Stop" },
   { key: "current", label: "Current" },
   { key: "invest", label: "Invest" },
   { key: "value", label: "Value" },
@@ -165,6 +169,7 @@ const comparatorMap: Record<SortableColumn, (row: PositionRow) => unknown> = {
   },
   quantity: (row) => row.quantity,
   cost: (row) => row.cost,
+  stop: (row) => row.stopPrice,
   current: (row) => row.effectivePrice,
   invest: (row) => row.invested,
   value: (row) => (row.isClosed ? null : row.currentValue),
@@ -562,6 +567,7 @@ export function PositionsTable({
                     )}
                     {columns.quantity && <td>{formatQuantity(row.quantity)}</td>}
                     {columns.cost && <td>{formatCurrency(row.cost, currency)}</td>}
+                    {columns.stop && <td>{formatCurrency(row.stopPrice, currency)}</td>}
                     {columns.current && <td>{formatCurrency(row.effectivePrice, currency)}</td>}
                     {columns.invest && <td>{formatCurrency(row.invested, currency)}</td>}
                     {columns.value && (
