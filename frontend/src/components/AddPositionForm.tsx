@@ -146,6 +146,15 @@ export function AddPositionForm({ onCreate, loading = false, tagSuggestions }: A
       api_token: state.isCustomApi ? (apiToken ? apiToken : null) : undefined,
       quantity,
       cost_price: cost,
+      purchase_lots: [
+        {
+          id: "lot-1",
+          quantity,
+          cost_price: cost,
+          purchase_date: state.purchaseDate || null,
+          stop_loss_set: false,
+        },
+      ],
       tags: state.tags,
       is_closed: state.isClosed,
       closing_price: closingValue,

@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import classNames from "classnames";
-import type { ForumPost, Position } from "../api/types";
+import type { ForumPost, Position, PurchaseLot } from "../api/types";
 import { fetchForumPostsForPosition } from "../api/client";
 import { colorFromScale, colorFromScaleIntraday } from "../utils/colors";
 import {
@@ -90,11 +98,14 @@ interface PositionsTableProps {
   onToggleShowClosed: (value: boolean) => void;
   onEdit: (position: Position) => void;
   onDelete: (position: Position) => void;
+  onToggleStopSet: (position: Position, value: boolean) => void | Promise<void>;
+  onUpdatePurchaseLots: (position: Position, lots: PurchaseLot[]) => void | Promise<void>;
   mutating?: boolean;
   deletingId?: string | null;
 }
 
 const POSITIONS_COLUMNS_STORAGE_KEY = "aiportfolio:positionsColumns";
+const LOT_STOP_LOSS_AMOUNT = 100;
 
 const DEFAULT_COLUMNS: PositionsColumns = {
   symbol: true,
@@ -196,6 +207,34 @@ const formatHeader = (label: string, active: boolean, direction: "asc" | "desc")
   return `${label} ${direction === "asc" ? "▲" : "▼"}`;
 };
 
+const isInteractiveTableTarget = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  Boolean(target.closest("a, button, input, label, select, textarea"));
+
+const getPurchaseLotsForRow = (row: PositionRow): PurchaseLot[] => {
+  const storedLots = Array.isArray(row.position.purchase_lots) ? row.position.purchase_lots : [];
+  const validLots = storedLots.filter(
+    (lot) =>
+      Number.isFinite(Number(lot.quantity)) &&
+      Number(lot.quantity) > 0 &&
+      Number.isFinite(Number(lot.cost_price)),
+  );
+
+  if (validLots.length) {
+    return validLots;
+  }
+
+  return [
+    {
+      id: "lot-1",
+      quantity: row.quantity,
+      cost_price: row.cost,
+      purchase_date: row.position.purchase_date ?? row.position.created_at ?? null,
+      stop_loss_set: Boolean(row.position.stop_loss_set),
+    },
+  ];
+};
+
 export function PositionsTable({
   rows,
   pnlRange,
@@ -209,6 +248,8 @@ export function PositionsTable({
   onToggleShowClosed,
   onEdit,
   onDelete,
+  onToggleStopSet,
+  onUpdatePurchaseLots,
   mutating = false,
   deletingId = null,
 }: PositionsTableProps) {
@@ -216,6 +257,7 @@ export function PositionsTable({
   const [activeForumId, setActiveForumId] = useState<string | null>(null);
   const hideForumTimerRef = useRef<number | null>(null);
   const [columns, setColumns] = useState<PositionsColumns>(() => loadColumns());
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [indicatorDetail, setIndicatorDetail] = useState<{
     position: Position;
     indicator: StockIndicatorResult;
@@ -238,6 +280,34 @@ export function PositionsTable({
       return next;
     });
   };
+
+  const toggleExpandedRow = useCallback((rowKey: string) => {
+    setExpandedRows((prev) => ({ ...prev, [rowKey]: !prev[rowKey] }));
+  }, []);
+
+  const handleRowClick = useCallback(
+    (event: MouseEvent<HTMLTableRowElement>, rowKey: string) => {
+      if (isInteractiveTableTarget(event.target)) {
+        return;
+      }
+      toggleExpandedRow(rowKey);
+    },
+    [toggleExpandedRow],
+  );
+
+  const handleRowKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTableRowElement>, rowKey: string) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      if (isInteractiveTableTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      toggleExpandedRow(rowKey);
+    },
+    [toggleExpandedRow],
+  );
 
   const openIndicatorModal = useCallback((position: Position) => {
     const indicator = evaluateStockIndicator(position);
@@ -377,7 +447,6 @@ export function PositionsTable({
       return na > nb ? direction : -direction;
     });
   })();
-
   const indicatorModal = indicatorDetail ? (
     <IndicatorModal detail={indicatorDetail} onClose={closeIndicatorModal} />
   ) : null;
@@ -518,9 +587,21 @@ export function PositionsTable({
                         oneYearRange.max,
                       );
                 const indicator = evaluateStockIndicator(position);
+                const rowKey = position.id ?? position.symbol;
+                const isExpanded = Boolean(expandedRows[rowKey]);
+                const purchaseLots = getPurchaseLotsForRow(row);
 
                 return (
-                  <tr key={position.id ?? position.symbol}>
+                  <Fragment key={rowKey}>
+                  <tr
+                    className={classNames("position-row", {
+                      "position-row--expanded": isExpanded,
+                    })}
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    onClick={(event) => handleRowClick(event, rowKey)}
+                    onKeyDown={(event) => handleRowKeyDown(event, rowKey)}
+                  >
                     {columns.symbol && (
                       <td>
                         {isCustomApi && position.api_url ? (
@@ -567,7 +648,32 @@ export function PositionsTable({
                     )}
                     {columns.quantity && <td>{formatQuantity(row.quantity)}</td>}
                     {columns.cost && <td>{formatCurrency(row.cost, currency)}</td>}
-                    {columns.stop && <td>{formatCurrency(row.stopPrice, currency)}</td>}
+                    {columns.stop && (
+                      <td>
+                        <div className="stop-cell">
+                          <span>{formatCurrency(row.stopPrice, currency)}</span>
+                          <button
+                            type="button"
+                            className={classNames("stop-check-btn", {
+                              "stop-check-btn--active": Boolean(position.stop_loss_set),
+                            })}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void onToggleStopSet(position, !position.stop_loss_set);
+                            }}
+                            disabled={mutating || !position.id}
+                            aria-label={
+                              position.stop_loss_set
+                                ? `Stop set for ${position.symbol}`
+                                : `Stop not set for ${position.symbol}`
+                            }
+                            title={position.stop_loss_set ? "Stop set" : "Stop not set"}
+                          >
+                            <span aria-hidden="true">✓</span>
+                          </button>
+                        </div>
+                      </td>
+                    )}
                     {columns.current && <td>{formatCurrency(row.effectivePrice, currency)}</td>}
                     {columns.invest && <td>{formatCurrency(row.invested, currency)}</td>}
                     {columns.value && (
@@ -697,6 +803,115 @@ export function PositionsTable({
                       </td>
                     )}
                   </tr>
+                  {isExpanded &&
+                    purchaseLots.map((lot, index) => {
+                      const quantity = Number(lot.quantity);
+                      const costPrice = Number(lot.cost_price);
+                      const invested =
+                        Number.isFinite(quantity) && Number.isFinite(costPrice)
+                          ? quantity * costPrice
+                          : null;
+                      const currentValue =
+                        Number.isFinite(quantity) && Number.isFinite(row.effectivePrice)
+                          ? quantity * row.effectivePrice
+                          : null;
+                      const pnlValue =
+                        invested !== null && currentValue !== null ? currentValue - invested : null;
+                      const pnlPercent =
+                        invested && pnlValue !== null ? (pnlValue / invested) * 100 : null;
+                      const stopPrice =
+                        Number.isFinite(quantity) && quantity > 0 && Number.isFinite(costPrice)
+                          ? Math.max(0, costPrice - LOT_STOP_LOSS_AMOUNT / quantity)
+                          : null;
+                      const lotPnlStyle =
+                        pnlValue === null
+                          ? undefined
+                          : colorFromScale(pnlValue, pnlRange.min, pnlRange.median, pnlRange.max);
+                      const intradayAbs =
+                        row.intradayAbs === null ||
+                        position.intraday_change === null ||
+                        position.intraday_change === undefined ||
+                        !Number.isFinite(quantity)
+                          ? null
+                          : Number(position.intraday_change) * quantity;
+                      const lotKey = lot.id ?? `${rowKey}-lot-${index}`;
+
+                      return (
+                        <tr className="position-lot-row" key={lotKey}>
+                          {columns.symbol && (
+                            <td>
+                              <span className="lot-label">Achat {index + 1}</span>
+                            </td>
+                          )}
+                          {columns.name && <td className="lot-muted-cell">Lot</td>}
+                          {columns.purchaseDate && <td>{formatDate(lot.purchase_date ?? null)}</td>}
+                          {columns.quantity && <td>{formatQuantity(quantity, 6)}</td>}
+                          {columns.cost && <td>{formatCurrency(costPrice, currency)}</td>}
+                          {columns.stop && (
+                            <td>
+                              <div className="stop-cell">
+                                <span>{formatCurrency(stopPrice, currency)}</span>
+                                <button
+                                  type="button"
+                                  className={classNames("stop-check-btn", {
+                                    "stop-check-btn--active": Boolean(lot.stop_loss_set),
+                                  })}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    const updatedLots = purchaseLots.map((item, lotIndex) => ({
+                                      ...item,
+                                      id: item.id ?? `lot-${lotIndex + 1}`,
+                                      stop_loss_set:
+                                        lotIndex === index
+                                          ? !item.stop_loss_set
+                                          : Boolean(item.stop_loss_set),
+                                    }));
+                                    void onUpdatePurchaseLots(position, updatedLots);
+                                  }}
+                                  disabled={mutating || !position.id}
+                                  aria-label={
+                                    lot.stop_loss_set
+                                      ? `Stop set for ${position.symbol} lot ${index + 1}`
+                                      : `Stop not set for ${position.symbol} lot ${index + 1}`
+                                  }
+                                  title={lot.stop_loss_set ? "Stop set" : "Stop not set"}
+                                >
+                                  <span aria-hidden="true">✓</span>
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                          {columns.current && <td>{formatCurrency(row.effectivePrice, currency)}</td>}
+                          {columns.invest && <td>{formatCurrency(invested, currency)}</td>}
+                          {columns.value && (
+                            <td>{closed ? "—" : formatCurrency(currentValue, currency)}</td>
+                          )}
+                          {columns.pnl && (
+                            <td>
+                              <span style={lotPnlStyle}>{formatCurrency(pnlValue, currency)}</span>
+                            </td>
+                          )}
+                          {columns.pnlPct && <td>{formatSignedPercent(pnlPercent)}</td>}
+                          {columns.intradayAbs && (
+                            <td
+                              className={classNames({
+                                "pos-green": (intradayAbs ?? 0) > 0,
+                                "pos-red": (intradayAbs ?? 0) < 0,
+                              })}
+                            >
+                              {intradayAbs === null ? "—" : formatCurrency(intradayAbs, currency)}
+                            </td>
+                          )}
+                          {columns.intradayPct && <td className="lot-muted-cell" />}
+                          {columns.tenDayPct && <td className="lot-muted-cell" />}
+                          {columns.oneYearPct && <td className="lot-muted-cell" />}
+                          {columns.indicator && <td className="lot-muted-cell">—</td>}
+                          {columns.tags && <td className="lot-muted-cell">—</td>}
+                          {columns.actions && <td />}
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 );
               })}
             </tbody>

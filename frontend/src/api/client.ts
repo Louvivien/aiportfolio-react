@@ -5,6 +5,7 @@ import type {
   NewsAgendaResponse,
   PortfolioSummary,
   Position,
+  PurchaseLot,
   Tag,
   TagSummaryRow,
   TagTimeseriesResponse,
@@ -40,15 +41,36 @@ const normalizePosition = (raw: Position): Position => {
   const id = raw.id ?? raw._id ?? raw.symbol;
   const tags = Array.isArray(raw.tags) ? raw.tags : [];
   const purchase = normalizeDateValue(raw.purchase_date) ?? normalizeDateValue(raw.created_at);
+  const purchaseLots = Array.isArray(raw.purchase_lots)
+    ? raw.purchase_lots
+        .map((lot, index) => {
+          const quantity = Number(lot.quantity);
+          const costPrice = Number(lot.cost_price);
+          if (!Number.isFinite(quantity) || !Number.isFinite(costPrice)) {
+            return null;
+          }
+          return {
+            ...lot,
+            id: lot.id ?? `lot-${index + 1}`,
+            quantity,
+            cost_price: costPrice,
+            purchase_date: normalizeDateValue(lot.purchase_date),
+            stop_loss_set: Boolean(lot.stop_loss_set),
+          };
+        })
+        .filter((lot): lot is PurchaseLot => lot !== null)
+    : [];
   return {
     ...raw,
     id,
     tags,
+    purchase_lots: purchaseLots,
     purchase_date: purchase,
     closing_date: normalizeDateValue(raw.closing_date),
     created_at: normalizeDateValue(raw.created_at),
     updated_at: normalizeDateValue(raw.updated_at),
     indicator_disabled: Boolean(raw.indicator_disabled),
+    stop_loss_set: Boolean(raw.stop_loss_set),
   };
 };
 

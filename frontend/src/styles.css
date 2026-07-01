@@ -240,6 +240,60 @@ button {
   background: #f9fafb;
 }
 
+.table tbody tr.position-row {
+  cursor: pointer;
+}
+
+.table tbody tr.position-row:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.table tbody tr.position-row--expanded,
+.table tbody tr.position-row--expanded:hover {
+  background: #f8fafc;
+}
+
+.position-detail-row td {
+  background: #f8fafc;
+  padding: 0 12px 14px;
+}
+
+.table tbody tr.position-lot-row {
+  background: #f8fafc;
+  color: #374151;
+}
+
+.table tbody tr.position-lot-row:hover {
+  background: #f1f5f9;
+}
+
+.table tbody tr.position-lot-row td {
+  border-bottom-color: #e5e7eb;
+  font-size: 13px;
+}
+
+.lot-label {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 14px;
+  color: #475569;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.lot-label::before {
+  content: "";
+  width: 10px;
+  height: 1px;
+  margin-right: 8px;
+  background: #94a3b8;
+}
+
+.lot-muted-cell {
+  color: #94a3b8;
+}
+
 .table-header-btn {
   display: inline-flex;
   align-items: center;
@@ -357,6 +411,12 @@ button {
   box-shadow: 0 20px 48px -24px rgba(15, 23, 42, 0.6);
 }
 
+.modal-edit-position {
+  width: min(760px, 100%);
+  max-height: 94vh;
+  overflow: auto;
+}
+
 .modal-wide {
   width: min(96vw, 1280px);
   max-height: 94vh;
@@ -392,6 +452,45 @@ button {
   cursor: not-allowed;
 }
 
+.stop-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.stop-check-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #9ca3af;
+  font-weight: 800;
+  line-height: 1;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.stop-check-btn:hover:not(:disabled) {
+  background: #e5e7eb;
+  color: #6b7280;
+}
+
+.stop-check-btn--active,
+.stop-check-btn--active:hover:not(:disabled) {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #15803d;
+}
+
+.stop-check-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .form-grid {
   display: grid;
   gap: 12px;
@@ -421,6 +520,11 @@ button {
 .input-row input:focus {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
+}
+
+.input-row input[readonly] {
+  background: #f9fafb;
+  color: #374151;
 }
 
 .checkbox-row {
@@ -631,6 +735,158 @@ button {
 
 .forum-popover-status--error {
   color: #b91c1c;
+}
+
+.purchase-lots-section {
+  display: grid;
+  gap: 10px;
+  overflow-x: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.purchase-lots-header,
+.purchase-lots-summary,
+.purchase-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.purchase-lots-header span,
+.purchase-detail-header span:first-child {
+  font-weight: 700;
+  color: #111827;
+}
+
+.purchase-lots-header .btn {
+  padding: 7px 12px;
+}
+
+.purchase-lots-grid {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(110px, 1fr) minmax(110px, 1fr) minmax(110px, 1fr) 44px 34px;
+  gap: 8px;
+  min-width: 680px;
+  align-items: center;
+}
+
+.purchase-lots-row {
+  display: contents;
+}
+
+.purchase-lots-grid-head,
+.purchase-detail-grid-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.purchase-lots-grid input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: white;
+  color: #111827;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.purchase-lots-grid input:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.purchase-lots-amount {
+  color: #111827;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.purchase-lot-remove {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.purchase-lot-remove:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.purchase-lot-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.purchase-lots-summary {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.purchase-lots-summary span {
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  padding: 4px 9px;
+}
+
+.purchase-detail-panel {
+  display: grid;
+  gap: 10px;
+  overflow-x: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  padding: 12px;
+}
+
+.purchase-detail-header span:last-child {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.purchase-detail-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(70px, 0.7fr)
+    minmax(110px, 1fr)
+    minmax(190px, 1.8fr)
+    minmax(110px, 1fr)
+    minmax(110px, 1fr)
+    minmax(100px, 1fr)
+    minmax(90px, 0.8fr)
+    minmax(150px, 1.3fr);
+  gap: 8px 14px;
+  min-width: 1040px;
+  align-items: center;
+  color: #374151;
+  font-size: 13px;
+}
+
+.purchase-detail-grid > div:not(.purchase-detail-grid-head) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.lot-stop-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .indicator-modal-summary {

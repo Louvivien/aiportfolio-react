@@ -24,6 +24,14 @@ export interface FundamentalsSnapshot {
   quickRatioAsOfDate?: string | null;
 }
 
+export interface PurchaseLot {
+  id?: string | null;
+  quantity: number;
+  cost_price: number;
+  purchase_date?: string | null;
+  stop_loss_set?: boolean;
+}
+
 export interface Position {
   id?: string;
   _id?: string;
@@ -32,6 +40,7 @@ export interface Position {
   api_url?: string | null;
   quantity: number;
   cost_price: number;
+  purchase_lots?: PurchaseLot[];
   current_price?: number | null;
   long_name?: string | null;
   intraday_change?: number | null;
@@ -58,6 +67,7 @@ export interface Position {
   roe_5y_avg_pct?: number | null;
   quick_ratio?: number | null;
   indicator_disabled?: boolean;
+  stop_loss_set?: boolean;
 }
 
 export interface PortfolioSummary {
@@ -144,6 +154,7 @@ export interface CreatePositionPayload {
   api_token?: string | null;
   quantity: number;
   cost_price: number;
+  purchase_lots?: PurchaseLot[];
   tags: string[];
   is_closed: boolean;
   closing_price: number | null;
@@ -156,6 +167,7 @@ export interface CreatePositionPayload {
   roe_5y_avg_pct?: number | null;
   quick_ratio?: number | null;
   indicator_disabled?: boolean;
+  stop_loss_set?: boolean;
 }
 
 export interface UpdatePositionPayload {
@@ -165,6 +177,7 @@ export interface UpdatePositionPayload {
   api_token?: string | null;
   quantity?: number;
   cost_price?: number;
+  purchase_lots?: PurchaseLot[];
   tags?: string[];
   is_closed?: boolean;
   closing_price?: number | null;
@@ -177,4 +190,5 @@ export interface UpdatePositionPayload {
   roe_5y_avg_pct?: number | null;
   quick_ratio?: number | null;
   indicator_disabled?: boolean;
+  stop_loss_set?: boolean;
 }

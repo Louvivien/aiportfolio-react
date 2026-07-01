@@ -76,6 +76,102 @@ const parseNullableNumber = (value) => {
   return Number.isFinite(num) ? num : null;
 };
 
+const normalizeLotId = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const cleaned = typeof value === "string" ? value.trim() : String(value).trim();
+  return cleaned ? cleaned.slice(0, 80) : null;
+};
+
+const normalizePurchaseLot = (value, fallbackDate, index) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const quantity = normaliseNumber(value.quantity, NaN);
+  const costPrice = normaliseNumber(value.cost_price ?? value.costPrice, NaN);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return null;
+  }
+  if (!Number.isFinite(costPrice) || costPrice < 0) {
+    return null;
+  }
+
+  const parsedDate = parseDateInput(value.purchase_date ?? value.purchaseDate) ?? fallbackDate ?? null;
+  const stopLossSet =
+    value.stop_loss_set === undefined && value.stopLossSet === undefined
+      ? null
+      : asBoolean(value.stop_loss_set ?? value.stopLossSet);
+  return {
+    id: normalizeLotId(value.id) ?? `lot-${index + 1}`,
+    quantity,
+    cost_price: costPrice,
+    purchase_date: parsedDate,
+    stop_loss_set: stopLossSet,
+  };
+};
+
+const normalizePurchaseLots = (value, fallbackDate = null) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((lot, index) => normalizePurchaseLot(lot, fallbackDate, index))
+    .filter(Boolean);
+};
+
+const summarizePurchaseLots = (lots) => {
+  const summary = {
+    quantity: 0,
+    invested: 0,
+    averageCost: null,
+    firstDate: null,
+  };
+
+  for (const lot of lots || []) {
+    const quantity = normaliseNumber(lot?.quantity, NaN);
+    const costPrice = normaliseNumber(lot?.cost_price, NaN);
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(costPrice)) {
+      continue;
+    }
+    summary.quantity += quantity;
+    summary.invested += quantity * costPrice;
+    const lotDate = parseDateInput(lot?.purchase_date);
+    if (lotDate && (!summary.firstDate || lotDate < summary.firstDate)) {
+      summary.firstDate = lotDate;
+    }
+  }
+
+  if (summary.quantity > 0) {
+    summary.averageCost = summary.invested / summary.quantity;
+  }
+
+  return summary;
+};
+
+const defaultPurchaseLotsFromPosition = (position, fallbackDate = null) => {
+  const quantity = normaliseNumber(position?.quantity, NaN);
+  const costPrice = normaliseNumber(position?.cost_price, NaN);
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(costPrice) || costPrice < 0) {
+    return [];
+  }
+  const purchaseDate =
+    parseDateInput(position?.purchase_date) ??
+    fallbackDate ??
+    parseDateInput(position?.created_at) ??
+    null;
+  return [
+    {
+      id: "lot-1",
+      quantity,
+      cost_price: costPrice,
+      purchase_date: purchaseDate,
+      stop_loss_set: asBoolean(position?.stop_loss_set),
+    },
+  ];
+};
+
 const parseQueryNumber = (value, fallback, min, max) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
@@ -144,6 +240,10 @@ function enrichDocument(doc, priceEntry, tagNames) {
     liveRaw === null || liveRaw === undefined ? null : normaliseNumber(liveRaw, NaN);
 
   const purchaseDate = parseDateInput(doc?.purchase_date) ?? parseDateInput(doc?.created_at);
+  const purchaseLots = normalizePurchaseLots(doc?.purchase_lots, purchaseDate);
+  const resolvedPurchaseLots = purchaseLots.length
+    ? purchaseLots
+    : defaultPurchaseLotsFromPosition(doc, purchaseDate);
 
   const costRaw = doc?.cost_price;
   const cost =
@@ -253,6 +353,14 @@ function enrichDocument(doc, priceEntry, tagNames) {
 
   const enriched = {
     ...safeDoc,
+    purchase_lots: resolvedPurchaseLots.map((lot) => ({
+      ...lot,
+      purchase_date: toIsoDateTime(lot.purchase_date),
+      stop_loss_set:
+        lot.stop_loss_set === null || lot.stop_loss_set === undefined
+          ? asBoolean(doc?.stop_loss_set)
+          : asBoolean(lot.stop_loss_set),
+    })),
     purchase_date: toIsoDateTime(doc?.purchase_date),
     created_at: toIsoDateTime(doc?.created_at),
     updated_at: toIsoDateTime(doc?.updated_at),
@@ -277,6 +385,7 @@ function enrichDocument(doc, priceEntry, tagNames) {
     roe_5y_avg_pct: roe5yAvgValue,
     quick_ratio: quickRatioValue,
     indicator_disabled: asBoolean(doc?.indicator_disabled),
+    stop_loss_set: asBoolean(doc?.stop_loss_set),
   };
   return withStringId(enriched);
 }
@@ -530,13 +639,28 @@ router.post("/", async (req, res, next) => {
     const purchaseDate = parseDateInput(body.purchase_date);
     const closingDate = parseDateInput(body.closing_date);
     const isClosed = Boolean(body.is_closed);
+    const requestedQuantity = normaliseNumber(body.quantity, 0);
+    const requestedCostPrice = normaliseNumber(body.cost_price, 0);
+    const purchaseLots = normalizePurchaseLots(body.purchase_lots, purchaseDate ?? now);
+    const resolvedPurchaseLots = purchaseLots.length
+      ? purchaseLots
+      : defaultPurchaseLotsFromPosition(
+          {
+            quantity: requestedQuantity,
+            cost_price: requestedCostPrice,
+            purchase_date: purchaseDate ?? now,
+          },
+          now,
+        );
+    const lotSummary = summarizePurchaseLots(resolvedPurchaseLots);
     const doc = {
       symbol: String(body.symbol || "").toUpperCase(),
       display_name: displayName,
       api_url: apiUrl,
       api_token: isCustomApi ? apiToken : null,
-      quantity: normaliseNumber(body.quantity, 0),
-      cost_price: normaliseNumber(body.cost_price, 0),
+      quantity: lotSummary.quantity > 0 ? lotSummary.quantity : requestedQuantity,
+      cost_price: lotSummary.averageCost ?? requestedCostPrice,
+      purchase_lots: resolvedPurchaseLots,
       tags: tagIds,
       is_closed: isClosed,
       closing_price:
@@ -544,7 +668,7 @@ router.post("/", async (req, res, next) => {
           ? null
           : normaliseNumber(body.closing_price),
       closing_date: isClosed ? closingDate ?? now : null,
-      purchase_date: purchaseDate ?? now,
+      purchase_date: purchaseDate ?? lotSummary.firstDate ?? now,
       boursorama_forum_url: isCustomApi
         ? null
         : normalizeForumUrl(body.boursorama_forum_url, body.symbol),
@@ -554,6 +678,7 @@ router.post("/", async (req, res, next) => {
       roe_5y_avg_pct: parseNullableNumber(body.roe_5y_avg_pct),
       quick_ratio: parseNullableNumber(body.quick_ratio),
       indicator_disabled: isCustomApi ? true : asBoolean(body.indicator_disabled),
+      stop_loss_set: asBoolean(body.stop_loss_set),
       created_at: now,
       updated_at: now,
     };
@@ -741,6 +866,21 @@ router.put("/:id", async (req, res, next) => {
       const parsedDate = parseDateInput(body.purchase_date);
       updates.purchase_date = parsedDate ?? null;
     }
+    if (body.purchase_lots !== undefined) {
+      const fallbackDate =
+        parseDateInput(body.purchase_date) ?? parseDateInput(existing?.purchase_date) ?? new Date();
+      const purchaseLots = normalizePurchaseLots(body.purchase_lots, fallbackDate);
+      if (!purchaseLots.length) {
+        return res.status(400).json({ detail: "At least one valid purchase lot is required." });
+      }
+      const lotSummary = summarizePurchaseLots(purchaseLots);
+      updates.purchase_lots = purchaseLots;
+      updates.quantity = lotSummary.quantity;
+      updates.cost_price = lotSummary.averageCost ?? 0;
+      if (body.purchase_date === undefined) {
+        updates.purchase_date = lotSummary.firstDate ?? parseDateInput(existing?.purchase_date) ?? null;
+      }
+    }
     if (isCustomApi) {
       updates.boursorama_forum_url = null;
     } else if (body.boursorama_forum_url !== undefined) {
@@ -768,6 +908,9 @@ router.put("/:id", async (req, res, next) => {
       updates.indicator_disabled = true;
     } else if (body.indicator_disabled !== undefined) {
       updates.indicator_disabled = asBoolean(body.indicator_disabled);
+    }
+    if (body.stop_loss_set !== undefined) {
+      updates.stop_loss_set = asBoolean(body.stop_loss_set);
     }
 
     const existingOverrides = normaliseOverrides(existing?.fundamentals_overrides);

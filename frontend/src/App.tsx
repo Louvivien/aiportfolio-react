@@ -21,6 +21,7 @@ import {
 import type {
   CreatePositionPayload,
   Position,
+  PurchaseLot,
   Tag,
   TagSummaryRow,
   TagTimeseriesResponse,
@@ -123,6 +124,36 @@ const extractErrorMessage = (error: unknown): string => {
     }
   }
   return "Something went wrong. Please try again.";
+};
+
+const buildPositionPurchaseLots = (position: Position): PurchaseLot[] => {
+  const storedLots = Array.isArray(position.purchase_lots) ? position.purchase_lots : [];
+  const validLots = storedLots.filter(
+    (lot) =>
+      Number.isFinite(Number(lot.quantity)) &&
+      Number(lot.quantity) > 0 &&
+      Number.isFinite(Number(lot.cost_price)),
+  );
+
+  if (validLots.length) {
+    return validLots.map((lot, index) => ({
+      id: lot.id ?? `lot-${index + 1}`,
+      quantity: Number(lot.quantity),
+      cost_price: Number(lot.cost_price),
+      purchase_date: lot.purchase_date ?? null,
+      stop_loss_set: Boolean(lot.stop_loss_set),
+    }));
+  }
+
+  return [
+    {
+      id: "lot-1",
+      quantity: Number(position.quantity) || 0,
+      cost_price: Number(position.cost_price) || 0,
+      purchase_date: position.purchase_date ?? position.created_at ?? null,
+      stop_loss_set: Boolean(position.stop_loss_set),
+    },
+  ];
 };
 
 function App() {
@@ -284,6 +315,67 @@ function App() {
     [reloadData],
   );
 
+  const handleToggleStopSet = useCallback(
+    async (position: Position, value: boolean) => {
+      if (!position.id) {
+        return;
+      }
+      setMutating(true);
+      setMutationError(null);
+      setMutationSuccess(null);
+      try {
+        const purchaseLots = buildPositionPurchaseLots(position).map((lot) => ({
+          ...lot,
+          stop_loss_set: value,
+        }));
+        await updatePosition(position.id, { stop_loss_set: value, purchase_lots: purchaseLots });
+        await reloadData();
+        setMutationSuccess(
+          value ? `Stop marked as set for ${position.symbol}` : `Stop marked as unset for ${position.symbol}`,
+        );
+      } catch (err) {
+        setMutationError(extractErrorMessage(err));
+      } finally {
+        setMutating(false);
+      }
+    },
+    [reloadData],
+  );
+
+  const handleUpdatePurchaseLots = useCallback(
+    async (position: Position, purchaseLots: PurchaseLot[]) => {
+      if (!position.id) {
+        return;
+      }
+      const normalizedLots = purchaseLots.map((lot, index) => ({
+        id: lot.id ?? `lot-${index + 1}`,
+        quantity: Number(lot.quantity),
+        cost_price: Number(lot.cost_price),
+        purchase_date: lot.purchase_date ?? null,
+        stop_loss_set: Boolean(lot.stop_loss_set),
+      }));
+      const allLotStopsSet =
+        normalizedLots.length > 0 && normalizedLots.every((lot) => lot.stop_loss_set);
+
+      setMutating(true);
+      setMutationError(null);
+      setMutationSuccess(null);
+      try {
+        await updatePosition(position.id, {
+          purchase_lots: normalizedLots,
+          stop_loss_set: allLotStopsSet,
+        });
+        await reloadData();
+        setMutationSuccess(`Updated lot stops for ${position.symbol}`);
+      } catch (err) {
+        setMutationError(extractErrorMessage(err));
+      } finally {
+        setMutating(false);
+      }
+    },
+    [reloadData],
+  );
+
   const handleSortChange = useCallback((column: SortableColumn) => {
     setSortConfig((prev) => {
       if (prev.column === column) {
@@ -417,6 +509,8 @@ function App() {
           onToggleShowClosed={setShowClosed}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onToggleStopSet={handleToggleStopSet}
+          onUpdatePurchaseLots={handleUpdatePurchaseLots}
           mutating={mutating}
           deletingId={deletingId}
         />
