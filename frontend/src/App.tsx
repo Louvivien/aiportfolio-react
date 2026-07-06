@@ -142,6 +142,9 @@ const buildPositionPurchaseLots = (position: Position): PurchaseLot[] => {
       cost_price: Number(lot.cost_price),
       purchase_date: lot.purchase_date ?? null,
       stop_loss_set: Boolean(lot.stop_loss_set),
+      is_closed: Boolean(lot.is_closed),
+      closing_price: lot.closing_price ?? null,
+      closing_date: lot.closing_date ?? null,
     }));
   }
 
@@ -152,6 +155,9 @@ const buildPositionPurchaseLots = (position: Position): PurchaseLot[] => {
       cost_price: Number(position.cost_price) || 0,
       purchase_date: position.purchase_date ?? position.created_at ?? null,
       stop_loss_set: Boolean(position.stop_loss_set),
+      is_closed: Boolean(position.is_closed),
+      closing_price: position.closing_price ?? null,
+      closing_date: position.closing_date ?? null,
     },
   ];
 };
@@ -353,6 +359,9 @@ function App() {
         cost_price: Number(lot.cost_price),
         purchase_date: lot.purchase_date ?? null,
         stop_loss_set: Boolean(lot.stop_loss_set),
+        is_closed: Boolean(lot.is_closed),
+        closing_price: lot.closing_price ?? null,
+        closing_date: lot.closing_date ?? null,
       }));
       const allLotStopsSet =
         normalizedLots.length > 0 && normalizedLots.every((lot) => lot.stop_loss_set);

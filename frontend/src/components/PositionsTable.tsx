@@ -231,6 +231,9 @@ const getPurchaseLotsForRow = (row: PositionRow): PurchaseLot[] => {
       cost_price: row.cost,
       purchase_date: row.position.purchase_date ?? row.position.created_at ?? null,
       stop_loss_set: Boolean(row.position.stop_loss_set),
+      is_closed: Boolean(row.position.is_closed),
+      closing_price: row.position.closing_price ?? null,
+      closing_date: row.position.closing_date ?? row.position.updated_at ?? null,
     },
   ];
 };
@@ -807,20 +810,32 @@ export function PositionsTable({
                     purchaseLots.map((lot, index) => {
                       const quantity = Number(lot.quantity);
                       const costPrice = Number(lot.cost_price);
+                      const lotClosed = Boolean(lot.is_closed);
+                      const closingPrice =
+                        lot.closing_price === null || lot.closing_price === undefined
+                          ? null
+                          : Number(lot.closing_price);
+                      const effectiveLotPrice =
+                        lotClosed && closingPrice !== null && Number.isFinite(closingPrice)
+                          ? closingPrice
+                          : row.effectivePrice;
                       const invested =
                         Number.isFinite(quantity) && Number.isFinite(costPrice)
                           ? quantity * costPrice
                           : null;
                       const currentValue =
-                        Number.isFinite(quantity) && Number.isFinite(row.effectivePrice)
-                          ? quantity * row.effectivePrice
+                        Number.isFinite(quantity) && Number.isFinite(effectiveLotPrice)
+                          ? quantity * effectiveLotPrice
                           : null;
                       const pnlValue =
                         invested !== null && currentValue !== null ? currentValue - invested : null;
                       const pnlPercent =
                         invested && pnlValue !== null ? (pnlValue / invested) * 100 : null;
                       const stopPrice =
-                        Number.isFinite(quantity) && quantity > 0 && Number.isFinite(costPrice)
+                        !lotClosed &&
+                        Number.isFinite(quantity) &&
+                        quantity > 0 &&
+                        Number.isFinite(costPrice)
                           ? Math.max(0, costPrice - LOT_STOP_LOSS_AMOUNT / quantity)
                           : null;
                       const lotPnlStyle =
@@ -829,6 +844,7 @@ export function PositionsTable({
                           : colorFromScale(pnlValue, pnlRange.min, pnlRange.median, pnlRange.max);
                       const intradayAbs =
                         row.intradayAbs === null ||
+                        lotClosed ||
                         position.intraday_change === null ||
                         position.intraday_change === undefined ||
                         !Number.isFinite(quantity)
@@ -841,13 +857,18 @@ export function PositionsTable({
                           {columns.symbol && (
                             <td>
                               <span className="lot-label">Achat {index + 1}</span>
+                              {lotClosed && <span className="badge closed">Sold</span>}
                             </td>
                           )}
-                          {columns.name && <td className="lot-muted-cell">Lot</td>}
+                          {columns.name && (
+                            <td className="lot-muted-cell">
+                              {lotClosed ? `Sold ${formatDate(lot.closing_date ?? null)}` : "Lot"}
+                            </td>
+                          )}
                           {columns.purchaseDate && <td>{formatDate(lot.purchase_date ?? null)}</td>}
                           {columns.quantity && <td>{formatQuantity(quantity, 6)}</td>}
                           {columns.cost && <td>{formatCurrency(costPrice, currency)}</td>}
-                          {columns.stop && (
+                          {columns.stop && !lotClosed && (
                             <td>
                               <div className="stop-cell">
                                 <span>{formatCurrency(stopPrice, currency)}</span>
@@ -881,7 +902,8 @@ export function PositionsTable({
                               </div>
                             </td>
                           )}
-                          {columns.current && <td>{formatCurrency(row.effectivePrice, currency)}</td>}
+                          {columns.stop && lotClosed && <td className="lot-muted-cell">Sold</td>}
+                          {columns.current && <td>{formatCurrency(effectiveLotPrice, currency)}</td>}
                           {columns.invest && <td>{formatCurrency(invested, currency)}</td>}
                           {columns.value && (
                             <td>{closed ? "—" : formatCurrency(currentValue, currency)}</td>

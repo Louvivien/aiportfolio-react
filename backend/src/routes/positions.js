@@ -103,12 +103,18 @@ const normalizePurchaseLot = (value, fallbackDate, index) => {
     value.stop_loss_set === undefined && value.stopLossSet === undefined
       ? null
       : asBoolean(value.stop_loss_set ?? value.stopLossSet);
+  const isClosed = asBoolean(value.is_closed ?? value.closed);
+  const closingPrice = parseNullableNumber(value.closing_price ?? value.closingPrice);
+  const closingDate = parseDateInput(value.closing_date ?? value.closingDate);
   return {
     id: normalizeLotId(value.id) ?? `lot-${index + 1}`,
     quantity,
     cost_price: costPrice,
     purchase_date: parsedDate,
     stop_loss_set: stopLossSet,
+    is_closed: isClosed,
+    closing_price: isClosed ? closingPrice : null,
+    closing_date: isClosed ? closingDate : null,
   };
 };
 
@@ -123,10 +129,21 @@ const normalizePurchaseLots = (value, fallbackDate = null) => {
 
 const summarizePurchaseLots = (lots) => {
   const summary = {
+    count: 0,
+    closedCount: 0,
     quantity: 0,
     invested: 0,
     averageCost: null,
     firstDate: null,
+    openQuantity: 0,
+    openInvested: 0,
+    openAverageCost: null,
+    closedQuantity: 0,
+    closedInvested: 0,
+    closedProceeds: 0,
+    averageClosingPrice: null,
+    latestClosingDate: null,
+    allClosed: false,
   };
 
   for (const lot of lots || []) {
@@ -135,17 +152,41 @@ const summarizePurchaseLots = (lots) => {
     if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(costPrice)) {
       continue;
     }
+    summary.count += 1;
     summary.quantity += quantity;
     summary.invested += quantity * costPrice;
     const lotDate = parseDateInput(lot?.purchase_date);
     if (lotDate && (!summary.firstDate || lotDate < summary.firstDate)) {
       summary.firstDate = lotDate;
     }
+    if (asBoolean(lot?.is_closed)) {
+      summary.closedCount += 1;
+      summary.closedQuantity += quantity;
+      summary.closedInvested += quantity * costPrice;
+      const closingPrice = parseNullableNumber(lot?.closing_price);
+      if (closingPrice !== null) {
+        summary.closedProceeds += quantity * closingPrice;
+      }
+      const closingDate = parseDateInput(lot?.closing_date);
+      if (closingDate && (!summary.latestClosingDate || closingDate > summary.latestClosingDate)) {
+        summary.latestClosingDate = closingDate;
+      }
+    } else {
+      summary.openQuantity += quantity;
+      summary.openInvested += quantity * costPrice;
+    }
   }
 
   if (summary.quantity > 0) {
     summary.averageCost = summary.invested / summary.quantity;
   }
+  if (summary.openQuantity > 0) {
+    summary.openAverageCost = summary.openInvested / summary.openQuantity;
+  }
+  if (summary.closedQuantity > 0) {
+    summary.averageClosingPrice = summary.closedProceeds / summary.closedQuantity;
+  }
+  summary.allClosed = summary.count > 0 && summary.closedCount === summary.count;
 
   return summary;
 };
@@ -161,6 +202,7 @@ const defaultPurchaseLotsFromPosition = (position, fallbackDate = null) => {
     fallbackDate ??
     parseDateInput(position?.created_at) ??
     null;
+  const isClosed = asBoolean(position?.is_closed);
   return [
     {
       id: "lot-1",
@@ -168,6 +210,11 @@ const defaultPurchaseLotsFromPosition = (position, fallbackDate = null) => {
       cost_price: costPrice,
       purchase_date: purchaseDate,
       stop_loss_set: asBoolean(position?.stop_loss_set),
+      is_closed: isClosed,
+      closing_price: isClosed ? parseNullableNumber(position?.closing_price) : null,
+      closing_date: isClosed
+        ? parseDateInput(position?.closing_date) ?? parseDateInput(position?.updated_at)
+        : null,
     },
   ];
 };
@@ -360,6 +407,9 @@ function enrichDocument(doc, priceEntry, tagNames) {
         lot.stop_loss_set === null || lot.stop_loss_set === undefined
           ? asBoolean(doc?.stop_loss_set)
           : asBoolean(lot.stop_loss_set),
+      is_closed: asBoolean(lot.is_closed),
+      closing_price: asBoolean(lot.is_closed) ? parseNullableNumber(lot.closing_price) : null,
+      closing_date: asBoolean(lot.is_closed) ? toIsoDateTime(lot.closing_date) : null,
     })),
     purchase_date: toIsoDateTime(doc?.purchase_date),
     created_at: toIsoDateTime(doc?.created_at),
@@ -638,7 +688,7 @@ router.post("/", async (req, res, next) => {
     const now = new Date();
     const purchaseDate = parseDateInput(body.purchase_date);
     const closingDate = parseDateInput(body.closing_date);
-    const isClosed = Boolean(body.is_closed);
+    const requestedClosed = Boolean(body.is_closed);
     const requestedQuantity = normaliseNumber(body.quantity, 0);
     const requestedCostPrice = normaliseNumber(body.cost_price, 0);
     const purchaseLots = normalizePurchaseLots(body.purchase_lots, purchaseDate ?? now);
@@ -653,21 +703,27 @@ router.post("/", async (req, res, next) => {
           now,
         );
     const lotSummary = summarizePurchaseLots(resolvedPurchaseLots);
+    const isClosed = requestedClosed || lotSummary.allClosed;
+    const effectiveQuantity =
+      lotSummary.openQuantity > 0 ? lotSummary.openQuantity : lotSummary.quantity;
+    const effectiveCostPrice =
+      lotSummary.openQuantity > 0 ? lotSummary.openAverageCost : lotSummary.averageCost;
     const doc = {
       symbol: String(body.symbol || "").toUpperCase(),
       display_name: displayName,
       api_url: apiUrl,
       api_token: isCustomApi ? apiToken : null,
-      quantity: lotSummary.quantity > 0 ? lotSummary.quantity : requestedQuantity,
-      cost_price: lotSummary.averageCost ?? requestedCostPrice,
+      quantity: effectiveQuantity > 0 ? effectiveQuantity : requestedQuantity,
+      cost_price: effectiveCostPrice ?? requestedCostPrice,
       purchase_lots: resolvedPurchaseLots,
       tags: tagIds,
       is_closed: isClosed,
-      closing_price:
-        body.closing_price === null || body.closing_price === undefined
-          ? null
-          : normaliseNumber(body.closing_price),
-      closing_date: isClosed ? closingDate ?? now : null,
+      closing_price: isClosed
+        ? body.closing_price === null || body.closing_price === undefined
+          ? lotSummary.averageClosingPrice
+          : normaliseNumber(body.closing_price)
+        : null,
+      closing_date: isClosed ? closingDate ?? lotSummary.latestClosingDate ?? now : null,
       purchase_date: purchaseDate ?? lotSummary.firstDate ?? now,
       boursorama_forum_url: isCustomApi
         ? null
@@ -828,7 +884,7 @@ router.put("/:id", async (req, res, next) => {
       updates.api_token = isCustomApi ? normalizeApiToken(body.api_token) : null;
     }
 
-    const nextIsClosed =
+    let nextIsClosed =
       body.is_closed !== undefined ? Boolean(body.is_closed) : asBoolean(existing.is_closed);
     const hasClosingDate = body.closing_date !== undefined;
 
@@ -874,9 +930,17 @@ router.put("/:id", async (req, res, next) => {
         return res.status(400).json({ detail: "At least one valid purchase lot is required." });
       }
       const lotSummary = summarizePurchaseLots(purchaseLots);
+      const effectiveQuantity =
+        lotSummary.openQuantity > 0 ? lotSummary.openQuantity : lotSummary.quantity;
+      const effectiveCostPrice =
+        lotSummary.openQuantity > 0 ? lotSummary.openAverageCost : lotSummary.averageCost;
+      nextIsClosed = lotSummary.allClosed;
       updates.purchase_lots = purchaseLots;
-      updates.quantity = lotSummary.quantity;
-      updates.cost_price = lotSummary.averageCost ?? 0;
+      updates.quantity = effectiveQuantity;
+      updates.cost_price = effectiveCostPrice ?? 0;
+      updates.is_closed = nextIsClosed;
+      updates.closing_price = nextIsClosed ? lotSummary.averageClosingPrice : null;
+      updates.closing_date = nextIsClosed ? lotSummary.latestClosingDate ?? new Date() : null;
       if (body.purchase_date === undefined) {
         updates.purchase_date = lotSummary.firstDate ?? parseDateInput(existing?.purchase_date) ?? null;
       }

@@ -39,6 +39,9 @@ interface PurchaseLotDraft {
   costPrice: string;
   purchaseDate: string;
   stopLossSet: boolean;
+  isClosed: boolean;
+  closingPrice: string;
+  closingDate: string;
 }
 
 interface PurchaseLotSummary {
@@ -48,6 +51,10 @@ interface PurchaseLotSummary {
   invested: number;
   averageCost: number | null;
   firstDate: string | null;
+  openQuantity: number;
+  openInvested: number;
+  openAverageCost: number | null;
+  allClosed: boolean;
 }
 
 const EMPTY_STATE: EditState = {
@@ -95,6 +102,9 @@ const buildLotDrafts = (position: Position): PurchaseLotDraft[] => {
           cost_price: position.cost_price,
           purchase_date: position.purchase_date ?? position.created_at ?? null,
           stop_loss_set: Boolean(position.stop_loss_set),
+          is_closed: Boolean(position.is_closed),
+          closing_price: position.closing_price ?? null,
+          closing_date: position.closing_date ?? null,
         },
       ];
 
@@ -105,6 +115,9 @@ const buildLotDrafts = (position: Position): PurchaseLotDraft[] => {
     costPrice: formatDraftNumber(lot.cost_price),
     purchaseDate: toDateInputValue(lot.purchase_date ?? position.purchase_date ?? position.created_at ?? null),
     stopLossSet: Boolean(lot.stop_loss_set),
+    isClosed: Boolean(lot.is_closed),
+    closingPrice: formatDraftNumber(lot.closing_price),
+    closingDate: toDateInputValue(lot.closing_date ?? null),
   }));
 };
 
@@ -116,12 +129,21 @@ const summarizeDraftLots = (drafts: PurchaseLotDraft[]): PurchaseLotSummary => {
     invested: 0,
     averageCost: null,
     firstDate: null,
+    openQuantity: 0,
+    openInvested: 0,
+    openAverageCost: null,
+    allClosed: false,
   };
 
   drafts.forEach((draft, index) => {
     const quantity = parsePrice(draft.quantity);
     const costPrice = parsePrice(draft.costPrice);
     if (quantity === null || quantity <= 0 || costPrice === null || costPrice < 0) {
+      summary.invalidCount += 1;
+      return;
+    }
+    const closingPrice = parsePrice(draft.closingPrice);
+    if (draft.isClosed && (closingPrice === null || closingPrice < 0 || !draft.closingDate)) {
       summary.invalidCount += 1;
       return;
     }
@@ -133,9 +155,16 @@ const summarizeDraftLots = (drafts: PurchaseLotDraft[]): PurchaseLotSummary => {
       cost_price: costPrice,
       purchase_date: purchaseDate,
       stop_loss_set: draft.stopLossSet,
+      is_closed: draft.isClosed,
+      closing_price: draft.isClosed ? closingPrice : null,
+      closing_date: draft.isClosed ? draft.closingDate : null,
     });
     summary.quantity += quantity;
     summary.invested += quantity * costPrice;
+    if (!draft.isClosed) {
+      summary.openQuantity += quantity;
+      summary.openInvested += quantity * costPrice;
+    }
     if (purchaseDate && (!summary.firstDate || purchaseDate < summary.firstDate)) {
       summary.firstDate = purchaseDate;
     }
@@ -144,6 +173,10 @@ const summarizeDraftLots = (drafts: PurchaseLotDraft[]): PurchaseLotSummary => {
   if (summary.quantity > 0) {
     summary.averageCost = summary.invested / summary.quantity;
   }
+  if (summary.openQuantity > 0) {
+    summary.openAverageCost = summary.openInvested / summary.openQuantity;
+  }
+  summary.allClosed = summary.validLots.length > 0 && summary.validLots.every((lot) => lot.is_closed);
 
   return summary;
 };
@@ -239,7 +272,10 @@ export function EditPositionModal({
 
   const updatePurchaseLot = (
     key: string,
-    field: keyof Pick<PurchaseLotDraft, "quantity" | "costPrice" | "purchaseDate">,
+    field: keyof Pick<
+      PurchaseLotDraft,
+      "quantity" | "costPrice" | "purchaseDate" | "closingPrice" | "closingDate"
+    >,
     value: string,
   ) => {
     setState((prev) => ({
@@ -259,6 +295,23 @@ export function EditPositionModal({
     }));
   };
 
+  const updatePurchaseLotClosed = (key: string, value: boolean) => {
+    setState((prev) => ({
+      ...prev,
+      purchaseLots: prev.purchaseLots.map((lot) =>
+        lot.key === key
+          ? {
+              ...lot,
+              isClosed: value,
+              closingDate: value ? lot.closingDate || today : "",
+              closingPrice: value ? lot.closingPrice : "",
+              stopLossSet: value ? false : lot.stopLossSet,
+            }
+          : lot,
+      ),
+    }));
+  };
+
   const addPurchaseLot = () => {
     setState((prev) => ({
       ...prev,
@@ -271,6 +324,9 @@ export function EditPositionModal({
           costPrice: "",
           purchaseDate: today,
           stopLossSet: false,
+          isClosed: false,
+          closingPrice: "",
+          closingDate: "",
         },
       ],
     }));
@@ -303,11 +359,14 @@ export function EditPositionModal({
     }
 
     const lotSummary = summarizeDraftLots(state.purchaseLots);
-    const qty = lotSummary.quantity;
-    const cost = lotSummary.averageCost ?? 0;
+    const qty = lotSummary.openQuantity > 0 ? lotSummary.openQuantity : lotSummary.quantity;
+    const cost =
+      lotSummary.openQuantity > 0
+        ? lotSummary.openAverageCost ?? 0
+        : lotSummary.averageCost ?? 0;
 
-    if (lotSummary.invalidCount > 0 || !lotSummary.validLots.length || qty <= 0) {
-      setError("Each purchase lot needs a positive quantity and a valid cost price.");
+    if (lotSummary.invalidCount > 0 || !lotSummary.validLots.length || lotSummary.quantity <= 0) {
+      setError("Each purchase lot needs valid buy details; sold lots also need a sale price and sale date.");
       return;
     }
     if (!Number.isFinite(cost) || cost < 0) {
@@ -340,6 +399,21 @@ export function EditPositionModal({
       closingValue = null;
     }
 
+    const submittedLots =
+      state.isClosed && closingValue !== null && closingDate
+        ? lotSummary.validLots.map((lot) =>
+            lot.is_closed
+              ? lot
+              : {
+                  ...lot,
+                  is_closed: true,
+                  closing_price: closingValue,
+                  closing_date: closingDate,
+                  stop_loss_set: false,
+                },
+          )
+        : lotSummary.validLots;
+
     const forumUrlInput = state.forumUrl.trim();
     const forumUrl = state.isCustomApi ? "" : forumUrlInput;
 
@@ -357,7 +431,7 @@ export function EditPositionModal({
       symbol: state.symbol.toUpperCase().trim(),
       quantity: qty,
       cost_price: cost,
-      purchase_lots: lotSummary.validLots,
+      purchase_lots: submittedLots,
       is_closed: state.isClosed,
       closing_price: closingValue,
       closing_date: closingDate,
@@ -427,8 +501,12 @@ export function EditPositionModal({
 
   const lotSummary = summarizeDraftLots(state.purchaseLots);
   const currency = position.currency || (state.isCustomApi ? "USD" : "EUR");
+  const displayQuantity = lotSummary.openQuantity > 0 ? lotSummary.openQuantity : lotSummary.quantity;
+  const displayInvested = lotSummary.openQuantity > 0 ? lotSummary.openInvested : lotSummary.invested;
+  const displayAverageCost =
+    lotSummary.openQuantity > 0 ? lotSummary.openAverageCost : lotSummary.averageCost;
   const averageCostLabel =
-    lotSummary.averageCost === null ? "" : formatCurrency(lotSummary.averageCost, currency, 4);
+    displayAverageCost === null ? "" : formatCurrency(displayAverageCost, currency, 4);
 
   return (
     <div className="overlay" role="dialog" aria-modal="true">
@@ -525,7 +603,7 @@ export function EditPositionModal({
               <input
                 id="edit-quantity"
                 type="text"
-                value={formatQuantity(lotSummary.quantity, 6)}
+                value={formatQuantity(displayQuantity, 6)}
                 readOnly
               />
             </div>
@@ -600,6 +678,9 @@ export function EditPositionModal({
               <div className="purchase-lots-grid-head">Quantity</div>
               <div className="purchase-lots-grid-head">Cost price</div>
               <div className="purchase-lots-grid-head">Amount</div>
+              <div className="purchase-lots-grid-head">Sold</div>
+              <div className="purchase-lots-grid-head">Sale price</div>
+              <div className="purchase-lots-grid-head">Sale date</div>
               <div className="purchase-lots-grid-head">Stop</div>
               <div className="purchase-lots-grid-head" aria-hidden="true" />
               {state.purchaseLots.map((lot, index) => {
@@ -642,13 +723,42 @@ export function EditPositionModal({
                     <div className="purchase-lots-amount">
                       {formatCurrency(amount, currency)}
                     </div>
+                    <label className="purchase-lot-sold-toggle">
+                      <input
+                        type="checkbox"
+                        checked={lot.isClosed}
+                        onChange={(event) => updatePurchaseLotClosed(lot.key, event.target.checked)}
+                        disabled={loading}
+                        aria-label={`Mark purchase lot ${index + 1} as sold`}
+                      />
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={lot.closingPrice}
+                      onChange={(event) =>
+                        updatePurchaseLot(lot.key, "closingPrice", event.target.value)
+                      }
+                      disabled={loading || !lot.isClosed}
+                      aria-label={`Purchase lot ${index + 1} sale price`}
+                    />
+                    <input
+                      type="date"
+                      value={lot.closingDate}
+                      max={today}
+                      onChange={(event) =>
+                        updatePurchaseLot(lot.key, "closingDate", event.target.value)
+                      }
+                      disabled={loading || !lot.isClosed}
+                      aria-label={`Purchase lot ${index + 1} sale date`}
+                    />
                     <button
                       type="button"
                       className={classNames("stop-check-btn", {
                         "stop-check-btn--active": lot.stopLossSet,
                       })}
                       onClick={() => updatePurchaseLotStop(lot.key, !lot.stopLossSet)}
-                      disabled={loading}
+                      disabled={loading || lot.isClosed}
                       aria-label={
                         lot.stopLossSet
                           ? `Stop set for purchase lot ${index + 1}`
@@ -673,9 +783,9 @@ export function EditPositionModal({
               })}
             </div>
             <div className="purchase-lots-summary">
-              <span>Qty {formatQuantity(lotSummary.quantity, 6)}</span>
+              <span>Open qty {formatQuantity(displayQuantity, 6)}</span>
               <span>Avg {averageCostLabel || "—"}</span>
-              <span>Invested {formatCurrency(lotSummary.invested, currency)}</span>
+              <span>Invested {formatCurrency(displayInvested, currency)}</span>
             </div>
           </div>
 

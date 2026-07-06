@@ -56,6 +56,12 @@ const normalizePosition = (raw: Position): Position => {
             cost_price: costPrice,
             purchase_date: normalizeDateValue(lot.purchase_date),
             stop_loss_set: Boolean(lot.stop_loss_set),
+            is_closed: Boolean(lot.is_closed),
+            closing_price:
+              lot.closing_price === null || lot.closing_price === undefined
+                ? null
+                : Number(lot.closing_price),
+            closing_date: normalizeDateValue(lot.closing_date),
           };
         })
         .filter((lot): lot is PurchaseLot => lot !== null)

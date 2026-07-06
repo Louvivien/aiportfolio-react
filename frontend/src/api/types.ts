@@ -30,6 +30,9 @@ export interface PurchaseLot {
   cost_price: number;
   purchase_date?: string | null;
   stop_loss_set?: boolean;
+  is_closed?: boolean;
+  closing_price?: number | null;
+  closing_date?: string | null;
 }
 
 export interface Position {

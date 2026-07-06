@@ -768,9 +768,18 @@ button {
 
 .purchase-lots-grid {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(110px, 1fr) minmax(110px, 1fr) minmax(110px, 1fr) 44px 34px;
+  grid-template-columns:
+    minmax(130px, 1fr)
+    minmax(110px, 1fr)
+    minmax(110px, 1fr)
+    minmax(110px, 1fr)
+    52px
+    minmax(110px, 1fr)
+    minmax(130px, 1fr)
+    44px
+    34px;
   gap: 8px;
-  min-width: 680px;
+  min-width: 980px;
   align-items: center;
 }
 
@@ -795,9 +804,26 @@ button {
   padding: 8px 10px;
 }
 
+.purchase-lots-grid input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
 .purchase-lots-grid input:focus {
   outline: 2px solid #2563eb;
   outline-offset: 1px;
+}
+
+.purchase-lot-sold-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.purchase-lot-sold-toggle input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
 }
 
 .purchase-lots-amount {
