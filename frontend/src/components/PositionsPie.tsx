@@ -10,7 +10,7 @@ interface PositionsPieProps {
 
 interface PieDatum {
   label: string;
-  fullName: string | null;
+  symbol: string | null;
   value: number;
   currency: string | null | undefined;
 }
@@ -36,13 +36,13 @@ function buildPieData(rows: PositionRow[]): PieDatum[] {
   return rows
     .filter((row) => !row.isClosed)
     .map((row) => {
-      const symbol = row.position.symbol;
-      const longName = row.position.display_name || row.position.long_name || null;
-      const label = symbol || row.position.id || longName || "Position";
+      const symbol = row.position.symbol || null;
+      const companyName = row.position.display_name || row.position.long_name || null;
+      const label = companyName || symbol || row.position.id || "Position";
       const value = Math.abs(row.isClosed ? row.invested : row.currentValue);
       return {
         label,
-        fullName: longName,
+        symbol,
         value: Number.isFinite(value) ? value : 0,
         currency: row.position.currency,
       };
@@ -63,7 +63,7 @@ export default function PositionsPie({ rows }: PositionsPieProps) {
       data.map((entry, index) => ({
         id: `${entry.label}-${index}`,
         label: entry.label,
-        fullName: entry.fullName,
+        symbol: entry.symbol,
         color: PIE_COLORS[index % PIE_COLORS.length],
       })),
     [data],
@@ -97,7 +97,7 @@ export default function PositionsPie({ rows }: PositionsPieProps) {
         fontWeight={600}
         fill="#0f172a"
       >
-        {datum?.fullName ? <title>{datum.fullName}</title> : null}
+        {datum?.symbol ? <title>{datum.symbol}</title> : null}
         {labelText}
       </text>
     );
@@ -135,7 +135,9 @@ export default function PositionsPie({ rows }: PositionsPieProps) {
                 <Tooltip
                   formatter={(value: number, _name, props) => {
                     const datum = (props?.payload as PieDatum | undefined) ?? null;
-                    const label = datum?.fullName || datum?.label || "";
+                    const label = datum?.symbol
+                      ? `${datum.label} (${datum.symbol})`
+                      : datum?.label || "";
                     return [
                       formatCurrency(value, datum?.currency ?? currencyHint),
                       label,
@@ -150,7 +152,7 @@ export default function PositionsPie({ rows }: PositionsPieProps) {
               <span
                 key={item.id}
                 className="pie-legend-item"
-                title={item.fullName || item.label}
+                title={item.symbol ? `${item.label} (${item.symbol})` : item.label}
               >
                 <span className="pie-legend-swatch" style={{ backgroundColor: item.color }} />
                 {item.label}
