@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { initDb } from "./db.js";
+import monthlyReportsRouter from "./routes/monthlyReports.js";
 import positionsRouter from "./routes/positions.js";
 import tagsRouter from "./routes/tags.js";
 
@@ -18,6 +19,7 @@ async function buildApp() {
   });
 
   app.use("/api/tags", tagsRouter);
+  app.use("/api/monthly-reports", monthlyReportsRouter);
   app.use("/api/positions", positionsRouter);
 
   app.use((err, req, res, next) => {

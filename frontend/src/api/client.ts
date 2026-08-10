@@ -2,6 +2,8 @@ import axios from "axios";
 import type {
   CreatePositionPayload,
   ForumPostsResponse,
+  MonthlyPerformanceReport,
+  MonthlyReportsListResponse,
   NewsAgendaResponse,
   PortfolioSummary,
   Position,
@@ -107,6 +109,18 @@ export function fetchTagTimeseries(
       params: { period, interval },
     }),
   );
+}
+
+export function fetchMonthlyReports(): Promise<MonthlyReportsListResponse> {
+  return unwrap(client.get<MonthlyReportsListResponse>("/monthly-reports"));
+}
+
+export function fetchMonthlyReport(month: string): Promise<MonthlyPerformanceReport> {
+  return unwrap(client.get<MonthlyPerformanceReport>(`/monthly-reports/${month}`));
+}
+
+export function regenerateMonthlyReport(month: string): Promise<MonthlyPerformanceReport> {
+  return unwrap(client.post<MonthlyPerformanceReport>(`/monthly-reports/${month}/regenerate`));
 }
 
 export function createPosition(payload: CreatePositionPayload): Promise<Position> {

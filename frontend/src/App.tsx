@@ -9,6 +9,7 @@ import TotalsPanel from "./components/TotalsPanel";
 import PositionsPie from "./components/PositionsPie";
 import PositionsPnLBar from "./components/PositionsPnLBar";
 import NewsAgendaPanel from "./components/NewsAgendaPanel";
+import MonthlyReportsPanel from "./components/MonthlyReportsPanel";
 import {
   createPosition,
   deletePosition,
@@ -546,6 +547,8 @@ function App() {
         tagSummary={tagSummary}
         totals={portfolioTotals.totals}
       />
+
+      <MonthlyReportsPanel />
 
       {editing && (
         <EditPositionModal

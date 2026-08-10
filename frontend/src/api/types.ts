@@ -99,6 +99,91 @@ export interface TagTimeseriesResponse {
   total: TimeseriesPoint[];
 }
 
+export interface MonthlyReportSummary {
+  start_value: number;
+  end_value: number;
+  performance_value: number;
+  performance_pct: number | null;
+  positions_count: number;
+  tags_count: number;
+  positions_total: number;
+  positions_skipped: number;
+  lots_included: number;
+  lots_skipped: number;
+}
+
+export interface MonthlyReportTagRow {
+  tag: string;
+  start_value: number;
+  end_value: number;
+  performance_value: number;
+  performance_pct: number | null;
+  positions_count: number;
+}
+
+export interface MonthlyReportPositionRow {
+  position_id: string | null;
+  symbol: string;
+  name: string;
+  currency?: string | null;
+  tags: string[];
+  quantity: number;
+  start_value: number;
+  end_value: number;
+  performance_value: number;
+  performance_pct: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  start_price: number | null;
+  end_price: number | null;
+  start_basis: "cost" | "market" | "mixed" | null;
+  end_basis: "closing" | "market" | "mixed" | null;
+  included_lots: number;
+  skipped_lots: number;
+  notes: string[];
+}
+
+export interface MonthlyReportSkippedPosition {
+  position_id: string | null;
+  symbol: string;
+  name: string;
+  reason: string;
+}
+
+export interface MonthlyPerformanceReport {
+  id?: string;
+  _id?: string;
+  month: string;
+  period_start: string;
+  period_end: string;
+  generated_at: string;
+  created_at?: string;
+  updated_at?: string;
+  summary: MonthlyReportSummary;
+  tags: MonthlyReportTagRow[];
+  positions: MonthlyReportPositionRow[];
+  skipped_positions: MonthlyReportSkippedPosition[];
+}
+
+export interface MonthlyReportListItem {
+  id?: string;
+  month: string;
+  period_start: string;
+  period_end: string;
+  generated_at: string;
+  performance_value: number;
+  performance_pct: number | null;
+  start_value: number;
+  end_value: number;
+  positions_count: number;
+  tags_count: number;
+}
+
+export interface MonthlyReportsListResponse {
+  latest_due_month: string;
+  reports: MonthlyReportListItem[];
+}
+
 export interface ForumPost {
   title: string;
   topic_url: string | null;

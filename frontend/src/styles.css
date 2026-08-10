@@ -582,6 +582,157 @@ button {
   margin: 0;
 }
 
+.monthly-report-card {
+  padding: 16px 20px;
+  box-shadow: none;
+  border: 1px solid #e5e7eb;
+}
+
+.monthly-report-toggle {
+  cursor: pointer;
+  color: #6b7280;
+  font-weight: 700;
+}
+
+.monthly-report-card[open] .monthly-report-toggle {
+  margin-bottom: 16px;
+}
+
+.monthly-report-export-surface {
+  background: white;
+}
+
+.monthly-copy-success {
+  color: #047857;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.monthly-report-header {
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.monthly-report-header p {
+  margin: 6px 0 0;
+}
+
+.monthly-report-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.monthly-report-actions select {
+  min-width: 180px;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: white;
+  color: #111827;
+  font-size: 14px;
+}
+
+.monthly-report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.monthly-report-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #f3f4f6;
+}
+
+.monthly-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+}
+
+.monthly-report-metric {
+  display: grid;
+  gap: 4px;
+}
+
+.monthly-report-metric span {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.monthly-report-metric strong {
+  font-size: 20px;
+  color: #111827;
+}
+
+.monthly-report-section {
+  margin-top: 20px;
+}
+
+.monthly-report-section h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.monthly-report-table td,
+.monthly-report-table th {
+  white-space: nowrap;
+}
+
+.monthly-report-table td:first-child,
+.monthly-report-table th:first-child {
+  white-space: normal;
+  min-width: 180px;
+}
+
+.monthly-chart {
+  padding: 8px 0 0;
+}
+
+.monthly-chart-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.monthly-chart-tooltip {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 12px 24px -18px rgba(15, 23, 42, 0.45);
+  font-size: 13px;
+}
+
+.monthly-report-note {
+  color: #b45309;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
 .loading {
   display: inline-flex;
   align-items: center;

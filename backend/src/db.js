@@ -48,6 +48,7 @@ export function getDb() {
 export function getCollections() {
   const db = getDb();
   return {
+    monthlyReports: db.collection("monthly_reports"),
     positions: db.collection("positions"),
     tags: db.collection("tags"),
   };
