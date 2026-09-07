@@ -171,7 +171,7 @@ export function TagSummary({
                   checked={columns.tenDayPct}
                   onChange={() => toggleColumn("tenDayPct")}
                 />
-                10D lot P/L %
+                10D P/L %
               </label>
               <label className="checkbox-row">
                 <input
@@ -179,7 +179,7 @@ export function TagSummary({
                   checked={columns.oneYearPct}
                   onChange={() => toggleColumn("oneYearPct")}
                 />
-                1Y lot P/L %
+                1Y P/L %
               </label>
               <label className="checkbox-row">
                 <input
@@ -201,8 +201,8 @@ export function TagSummary({
                   {columns.allocation && <th>Alloc %</th>}
                   {columns.unrealizedPl && <th>Unrealized P/L</th>}
                   {columns.intradayPct && <th>Intraday %</th>}
-                  {columns.tenDayPct && <th>10D lot P/L %</th>}
-                  {columns.oneYearPct && <th>1Y lot P/L %</th>}
+                  {columns.tenDayPct && <th>10D P/L %</th>}
+                  {columns.oneYearPct && <th>1Y P/L %</th>}
                   {columns.chart && <th>Chart</th>}
                 </tr>
               </thead>

@@ -161,8 +161,8 @@ const columnMeta: { key: SortableColumn; label: string }[] = [
   { key: "pnlPct", label: "P/L %" },
   { key: "intradayAbs", label: "Intraday" },
   { key: "intradayPct", label: "Intraday %" },
-  { key: "tenDayPct", label: "10D lot P/L %" },
-  { key: "oneYearPct", label: "1Y lot P/L %" },
+  { key: "tenDayPct", label: "10D P/L %" },
+  { key: "oneYearPct", label: "1Y P/L %" },
   { key: "indicator", label: "Indicator" },
   { key: "tags", label: "Tags" },
 ];

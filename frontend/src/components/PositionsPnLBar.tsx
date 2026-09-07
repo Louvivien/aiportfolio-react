@@ -204,7 +204,7 @@ export function PositionsPnLBar({ rows, showClosed, onToggleShowClosed }: Positi
   return (
     <div className="card">
       <div className="section-header">
-        <h2>Lot P/L (EUR)</h2>
+        <h2>P/L (EUR)</h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <label
             className="checkbox-row"

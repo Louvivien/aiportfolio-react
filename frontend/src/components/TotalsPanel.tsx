@@ -25,9 +25,6 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
       <div className="section-header">
         <h2>Totals</h2>
       </div>
-      <p className="muted">EUR estimates using dated ECB rates. Period percentages are lot P/L divided by
-        opening value plus purchases during the period, including closed lots. They are not account returns.
-        Cash, fees and dividends are excluded. Partial figures include only calculable lots; percentages use the same lots’ cost basis.</p>
       {issues.length > 0 && (
         <details style={{ marginBottom: 16 }}>
           <summary>Some records are incomplete — see what is missing</summary>
@@ -55,7 +52,7 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
         </div>
         <div className="totals-secondary">
           <div className="metric-card muted-block">
-            <div className="muted-label">Realized P/L (All Closed Lots)</div>
+            <div className="muted-label">Realized P/L (All Sales)</div>
             <div className="muted-value">
               {money(totals.realizedPlClosed)} {partial("realized_pl")}
             </div>
@@ -67,21 +64,21 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
           className="badge"
           style={{ background: intradayColor, color: "#fff", fontSize: 14, padding: "6px 12px" }}
         >
-          Today lot P/L: {money(totals.intradayAbsSum)} (
+          Today P/L: {money(totals.intradayAbsSum)} (
           {percentage(totals.portfolioIntradayPct)}) {partial("intraday")}
         </span>
         <span
           className="badge"
           style={{ background: tenDayColor, color: "#fff", fontSize: 14, padding: "6px 12px" }}
         >
-          10D lot P/L: {money(totals.tenDayAbsolute)} (
+          10D P/L: {money(totals.tenDayAbsolute)} (
           {percentage(totals.tenDayPctTotal)}) {partial("ten_day")}
         </span>
         <span
           className="badge"
           style={{ background: oneYearColor, color: "#fff", fontSize: 14, padding: "6px 12px" }}
         >
-          1Y lot P/L: {money(totals.oneYearAbsolute)} (
+          1Y P/L: {money(totals.oneYearAbsolute)} (
           {percentage(totals.oneYearPctTotal)}) {partial("one_year")}
         </span>
       </div>
