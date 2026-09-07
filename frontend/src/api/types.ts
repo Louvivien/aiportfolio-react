@@ -1,3 +1,10 @@
+export interface MonthlyReportCoverage {
+  start_value: number | null;
+  end_value: number | null;
+  performance_value: number | null;
+  performance_pct: number | null;
+}
+
 export interface ValuationCoverage {
   value: number | null;
   basis: number | null;
@@ -133,6 +140,7 @@ export interface TagTimeseriesResponse {
 }
 
 export interface MonthlyReportSummary {
+  coverage?: MonthlyReportCoverage;
   incomplete?: boolean;
   start_value: number | null;
   end_value: number | null;
@@ -147,6 +155,8 @@ export interface MonthlyReportSummary {
 }
 
 export interface MonthlyReportTagRow {
+  coverage?: MonthlyReportCoverage;
+  incomplete?: boolean;
   tag: string;
   start_value: number | null;
   end_value: number | null;
@@ -156,6 +166,8 @@ export interface MonthlyReportTagRow {
 }
 
 export interface MonthlyReportPositionRow {
+  coverage?: MonthlyReportCoverage;
+  incomplete?: boolean;
   position_id: string | null;
   symbol: string;
   name: string;
@@ -178,6 +190,7 @@ export interface MonthlyReportPositionRow {
 }
 
 export interface MonthlyReportSkippedPosition {
+  incomplete?: boolean;
   position_id: string | null;
   symbol: string;
   name: string;
@@ -202,11 +215,12 @@ export interface MonthlyPerformanceReport {
 }
 
 export interface MonthlyReportListItem {
+  needs_generation?: boolean;
   id?: string;
   month: string;
   period_start: string;
   period_end: string;
-  generated_at: string;
+  generated_at: string | null;
   performance_value: number | null;
   performance_pct: number | null;
   start_value: number | null;

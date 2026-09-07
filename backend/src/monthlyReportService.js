@@ -1,4 +1,4 @@
-import { CALCULATION_VERSION, positionLots, lotContribution, sum } from "./finance.js";
+import { positionLots, lotContribution, sum, previousDay } from "./finance.js";
 import { loadFxRates, currencyConverter } from "./fxService.js";
 import { ObjectId } from "mongodb";
 import { getCollections } from "./db.js";
@@ -12,7 +12,9 @@ import {
   uniqueUppercaseSymbols,
 } from "./utils.js";
 
+const MONTHLY_REPORT_VERSION = 3;
 let indexPromise;
+const generatingReports = new Map();
 
 const pad2 = (value) => String(value).padStart(2, "0");
 
@@ -83,7 +85,10 @@ function isCompletedMonth(month, referenceDate = new Date()) {
 async function ensureMonthlyReportIndexes() {
   if (!indexPromise) {
     const { monthlyReports } = getCollections();
-    indexPromise = monthlyReports.createIndex({ month: 1 }, { unique: true });
+    indexPromise = monthlyReports.createIndex({ month: 1 }, { unique: true }).catch((error) => {
+      indexPromise = undefined;
+      throw error;
+    });
   }
   await indexPromise;
 }
@@ -174,6 +179,7 @@ async function loadHistories(docs, bounds) {
         getPriceHistory(symbols, {
           period: historyPeriodForMonth(bounds),
           interval: "1d",
+          requiredDates: [previousDay(bounds.periodStart), bounds.periodEnd],
         }),
         getPrices(symbols),
       ])
@@ -372,12 +378,14 @@ export function buildMonthlyReportFromData(month, docs, tagNameMap, histories, f
             : "mixed";
     }
 
+    bucket.coverage = buildPerformance(bucket.start_value, bucket.end_value);
     if (!includedForPosition) {
       skipped.push({
         position_id: positionId,
         symbol,
         name: positionLabel(doc, priceEntry),
         reason: notes[0] || "No eligible lot for report period.",
+        incomplete: bucket.incomplete,
       });
       continue;
     }
@@ -405,9 +413,11 @@ export function buildMonthlyReportFromData(month, docs, tagNameMap, histories, f
             performance_pct: null,
             positions_count: 0,
             _positions: new Set(),
+            coverage: { start_value: 0, end_value: 0, performance_value: 0 },
           })
           .get(tag);
       addAggregate(tagBucket, bucket);
+      addAggregate(tagBucket.coverage, bucket.coverage);
       tagBucket._positions.add(positionId || symbol);
     }
   }
@@ -427,6 +437,8 @@ export function buildMonthlyReportFromData(month, docs, tagNameMap, histories, f
       performance_value: row.performance_value,
       performance_pct: performancePercent(row.start_value, row.performance_value),
       positions_count: row._positions.size,
+      incomplete: incompleteTags.has(row.tag),
+      coverage: buildPerformance(row.coverage.start_value, row.coverage.end_value),
       ...(incompleteTags.has(row.tag) ? { start_value: null, end_value: null, performance_value: null, performance_pct: null } : {}),
     }))
     .sort((a, b) => Math.abs(b.performance_value) - Math.abs(a.performance_value));
@@ -436,6 +448,10 @@ export function buildMonthlyReportFromData(month, docs, tagNameMap, histories, f
   const summary = {
     ...buildPerformance(totalStart, totalEnd),
     incomplete,
+    coverage: positionsOutput.length || !incomplete ? buildPerformance(
+      sum(positionsOutput.map((row) => row.coverage.start_value)),
+      sum(positionsOutput.map((row) => row.coverage.end_value)),
+    ) : buildPerformance(null, null),
     ...(incomplete ? { start_value: null, end_value: null, performance_value: null, performance_pct: null } : {}),
     positions_count: positionsOutput.length,
     tags_count: tagsOutput.length,
@@ -447,7 +463,7 @@ export function buildMonthlyReportFromData(month, docs, tagNameMap, histories, f
 
   const now = new Date();
   return {
-    calculation_version: CALCULATION_VERSION,
+    calculation_version: MONTHLY_REPORT_VERSION,
     currency: "EUR",
     methodology: "Lot P/L / basis; basis includes purchases during the month; end includes sale proceeds. Excludes unrecorded cash, fees and dividends. Not a time-weighted or money-weighted account return.",
     stale: false,
@@ -463,7 +479,7 @@ export function buildMonthlyReportFromData(month, docs, tagNameMap, histories, f
   };
 }
 
-export async function generateMonthlyReport(month, { force = false } = {}) {
+async function generateMonthlyReportOnce(month, { force = false } = {}) {
   const normalized = normalizeReportMonth(month);
   if (!normalized) {
     throw reportError(400, "Invalid report month. Expected YYYY-MM.");
@@ -473,7 +489,7 @@ export async function generateMonthlyReport(month, { force = false } = {}) {
   const { monthlyReports } = getCollections();
   if (!force) {
     const existing = await monthlyReports.findOne({ month: normalized });
-    if (existing && existing.calculation_version === CALCULATION_VERSION && !existing.stale) {
+    if (existing && existing.calculation_version === MONTHLY_REPORT_VERSION && !existing.stale) {
       return normalizeStoredReport(existing);
     }
   }
@@ -488,6 +504,15 @@ export async function generateMonthlyReport(month, { force = false } = {}) {
     { upsert: true },
   );
   return normalizeStoredReport(await monthlyReports.findOne({ month: normalized }));
+}
+
+export async function generateMonthlyReport(month, options = {}) {
+  const normalized = normalizeReportMonth(month);
+  if (!normalized || !isCompletedMonth(normalized)) throw reportError(400, "Choose a completed month (YYYY-MM).");
+  if (generatingReports.has(normalized)) return generatingReports.get(normalized);
+  const pending = generateMonthlyReportOnce(normalized, options).finally(() => generatingReports.delete(normalized));
+  generatingReports.set(normalized, pending);
+  return pending;
 }
 
 export async function ensureLatestMonthlyReport() {
@@ -507,7 +532,7 @@ export async function ensureYearToDateMonthlyReports() {
 
   const { monthlyReports } = getCollections();
   const existingDocs = await monthlyReports
-    .find({ month: { $in: months }, calculation_version: CALCULATION_VERSION, stale: { $ne: true } }, { projection: { month: 1 } })
+    .find({ month: { $in: months }, calculation_version: MONTHLY_REPORT_VERSION, stale: { $ne: true } }, { projection: { month: 1 } })
     .toArray();
   const existingMonths = new Set(existingDocs.map((doc) => doc.month));
   const missingMonths = months.filter((month) => !existingMonths.has(month));
@@ -519,23 +544,30 @@ export async function ensureYearToDateMonthlyReports() {
   return missingMonths;
 }
 
-export async function listMonthlyReports({
-  ensureYearToDate = true,
-  ensureLatest = false,
-  limit = 36,
-} = {}) {
-  await ensureMonthlyReportIndexes();
-  if (ensureYearToDate) {
-    await ensureYearToDateMonthlyReports();
-  } else if (ensureLatest) {
-    await ensureLatestMonthlyReport();
-  }
+export function buildMonthlyReportList(docs, { ensureYearToDate = true, ensureLatest = false, limit = 36, referenceDate = new Date() } = {}) {
+  const months = new Map(docs.map((doc) => [doc.month, doc]));
+  const due = latestCompletedMonthKey(referenceDate);
+  const requested = ensureYearToDate ? completedMonthsSinceYearStart(referenceDate) : [];
+  if (ensureLatest || ensureYearToDate) requested.push(due);
+  for (const month of requested) if (!months.has(month)) months.set(month, null);
+  return { latest_due_month: due, reports: [...months.entries()]
+    .filter(([month]) => isCompletedMonth(month, referenceDate))
+    .sort(([a], [b]) => b.localeCompare(a)).slice(0, limit)
+    .map(([month, doc]) => {
+      const bounds = monthBounds(month);
+      const stale = !doc || doc.stale || doc.calculation_version !== MONTHLY_REPORT_VERSION;
+      return { ...(doc ? listItem(doc) : { month, period_start: bounds.periodStart, period_end: bounds.periodEnd, generated_at: null,
+        positions_count: 0, tags_count: 0 }),
+        needs_generation: Boolean(stale),
+        ...(stale ? { start_value: null, end_value: null, performance_value: null, performance_pct: null } : {}) };
+    }) };
+}
+
+export async function listMonthlyReports(options = {}) {
+  // Listing is a database read. Rebuild only the month the user opens.
   const { monthlyReports } = getCollections();
-  const docs = await monthlyReports.find().sort({ month: -1 }).limit(limit).toArray();
-  return {
-    latest_due_month: latestCompletedMonthKey(),
-    reports: await Promise.all(docs.map(async (doc) => listItem(await generateMonthlyReport(doc.month)))),
-  };
+  const docs = await monthlyReports.find().sort({ month: -1 }).limit(options.limit ?? 36).toArray();
+  return buildMonthlyReportList(docs, options);
 }
 
 export async function getMonthlyReport(month) {
@@ -546,7 +578,7 @@ export async function getMonthlyReport(month) {
   await ensureMonthlyReportIndexes();
   const { monthlyReports } = getCollections();
   const existing = await monthlyReports.findOne({ month: normalized });
-  if (existing && existing.calculation_version === CALCULATION_VERSION && !existing.stale) {
+  if (existing && existing.calculation_version === MONTHLY_REPORT_VERSION && !existing.stale) {
     return normalizeStoredReport(existing);
   }
   return generateMonthlyReport(normalized);

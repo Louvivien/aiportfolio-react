@@ -1,3 +1,4 @@
+import { priceAt } from "./finance.js";
 import yahooFinance from "yahoo-finance2";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -987,7 +988,7 @@ function resolveStartDate(period) {
   return start;
 }
 
-export async function getPriceHistory(symbols, { period = "6mo", interval = "1d" } = {}) {
+export async function getPriceHistory(symbols, { period = "6mo", interval = "1d", requiredDates = [] } = {}) {
   if (!symbols?.length) {
     return {};
   }
@@ -1005,70 +1006,28 @@ export async function getPriceHistory(symbols, { period = "6mo", interval = "1d"
   );
 
   const pairs = await mapWithConcurrency(unique, MAX_CONCURRENCY, async (symbol) => {
-    const cacheKey = `history:${symbol}:${period}:${interval}`;
+    const cacheKey = `history:${symbol}:${period}:${interval}:${requiredDates.join(",")}`;
     const cached = cacheGet(historyCache, cacheKey, HISTORY_CACHE_TTL_MS);
     if (cached) {
       return [symbol, cached];
     }
 
     const resolved = cacheGet(resolutionCache, symbol, RESOLUTION_CACHE_TTL_MS);
-    try {
-      if (interval === "1d") {
-        const points = await fetchYahooHistoryPoints(symbol, { period1, period2, interval });
-        if (points.length) {
-          cacheSet(resolutionCache, symbol, { provider: "yahoo", id: symbol });
-          cacheSet(historyCache, cacheKey, points);
-          return [symbol, points];
-        }
-      }
-
-      if (interval === "1d") {
-        if (resolved?.provider === "boursorama") {
-          const points = await fetchBoursoramaDailyHistory(resolved.id, { period1, period2 });
-          cacheSet(historyCache, cacheKey, points);
-          return [symbol, points];
-        }
-        if (resolved?.provider === "stooq") {
-          const points = await fetchStooqHistory(resolved.id, { period1, period2 });
-          cacheSet(historyCache, cacheKey, points);
-          return [symbol, points];
-        }
-      }
-
-      if (interval === "1d") {
-        const candidates = boursoramaCandidates(symbol);
-        for (const candidate of candidates) {
-          try {
-            const points = await fetchBoursoramaDailyHistory(candidate, { period1, period2 });
-            if (points.length) {
-              cacheSet(resolutionCache, symbol, { provider: "boursorama", id: candidate });
-              cacheSet(historyCache, cacheKey, points);
-              return [symbol, points];
-            }
-          } catch {
-            // try next
-          }
-        }
-
-        const stooq = stooqSymbol(symbol);
-        if (stooq) {
-          const points = await fetchStooqHistory(stooq, { period1, period2 });
-          if (points.length) {
-            cacheSet(resolutionCache, symbol, { provider: "stooq", id: stooq });
-            cacheSet(historyCache, cacheKey, points);
-            return [symbol, points];
-          }
-        }
-      }
-    } catch (error) {
-      const message = String(error?.message || "");
-      if (message.includes("Too Many Requests") || message.includes("429")) {
-        yahooBlockedUntilMs = nowMs() + 15 * 60 * 1000;
-      }
+    const candidates = [{ provider: "yahoo", id: symbol,
+      load: () => fetchYahooHistoryPoints(symbol, { period1, period2, interval }) }];
+    if (interval === "1d") {
+      const boursoramaIds = [...new Set([...(resolved?.provider === "boursorama" ? [resolved.id] : []), ...boursoramaCandidates(symbol)])];
+      for (const id of boursoramaIds) candidates.push({ provider: "boursorama", id,
+        load: () => fetchBoursoramaDailyHistory(id, { period1, period2 }) });
+      const id = stooqSymbol(symbol);
+      if (id) candidates.push({ provider: "stooq", id, load: () => fetchStooqHistory(id, { period1, period2 }) });
     }
-
-    cacheSet(historyCache, cacheKey, []);
-    return [symbol, []];
+    const selected = await selectHistoryForDates(candidates, requiredDates);
+    const points = selected?.points ?? [];
+    if (selected) cacheSet(resolutionCache, symbol, { provider: selected.provider, id: selected.id });
+    const complete = points.length && requiredDates.every((date) => priceAt(points, date));
+    cacheSet(historyCache, cacheKey, points, complete ? HISTORY_CACHE_TTL_MS : PRICE_CACHE_FAILURE_TTL_MS);
+    return [symbol, points];
   });
 
   pairs.forEach(([symbol, points]) => {
@@ -1076,4 +1035,21 @@ export async function getPriceHistory(symbols, { period = "6mo", interval = "1d"
   });
 
   return out;
+}
+
+// A nonempty response can still have months of missing data. Continue to the next
+// provider until all requested report boundaries are covered, keeping one source.
+export async function selectHistoryForDates(candidates, requiredDates) {
+  let best = null;
+  let bestScore = -1;
+  for (const candidate of candidates) {
+    try {
+      const points = await candidate.load();
+      if (!points?.length) continue;
+      const score = requiredDates.filter((date) => priceAt(points, date)).length;
+      if (score > bestScore) { best = { provider: candidate.provider, id: candidate.id, points }; bestScore = score; }
+      if (score === requiredDates.length) return best;
+    } catch { /* A failed provider must not prevent the next fallback. */ }
+  }
+  return best;
 }

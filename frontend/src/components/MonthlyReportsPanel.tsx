@@ -181,7 +181,7 @@ function TagRows({ rows }: { rows: MonthlyReportTagRow[] }) {
           {rows.map((row) => (
             <tr key={row.tag}>
               <td>
-                <span className="tag-chip">{row.tag}</span>
+                <span className="tag-chip">{row.tag}{row.incomplete ? " (Partial)" : ""}</span>
               </td>
               <td>{formatCurrency(row.start_value, "EUR")}</td>
               <td>{formatCurrency(row.end_value, "EUR")}</td>
@@ -369,7 +369,7 @@ function PositionRows({ rows }: { rows: MonthlyReportPositionRow[] }) {
           {sortedRows.map((row) => (
             <tr key={row.position_id ?? row.symbol}>
               <td>
-                <strong>{securityName(row)}</strong>
+                <strong>{securityName(row)}{row.incomplete ? " (Partial)" : ""}</strong>
                 {row.notes.length > 0 && (
                   <div className="monthly-report-note">{row.notes.join(" ")}</div>
                 )}
@@ -584,6 +584,7 @@ export function MonthlyReportsPanel() {
   const [copyingReport, setCopyingReport] = useState(false);
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const reportRequest = useRef(0);
   const reportExportRef = useRef<HTMLDivElement | null>(null);
 
   const selectedListItem = useMemo(
@@ -606,19 +607,18 @@ export function MonthlyReportsPanel() {
   }, []);
 
   const loadReport = useCallback(async (month: string) => {
-    if (!month) {
-      setReport(null);
-      return;
-    }
+    const request = ++reportRequest.current;
+    setReport(null);
+    if (!month) { setReportLoading(false); return; }
     setReportLoading(true);
     setError(null);
     try {
-      setReport(await fetchMonthlyReport(month));
+      const next = await fetchMonthlyReport(month);
+      if (request === reportRequest.current) setReport(next);
     } catch (err) {
-      setError(extractErrorMessage(err));
-      setReport(null);
+      if (request === reportRequest.current) setError(extractErrorMessage(err));
     } finally {
-      setReportLoading(false);
+      if (request === reportRequest.current) setReportLoading(false);
     }
   }, []);
 
@@ -689,10 +689,15 @@ export function MonthlyReportsPanel() {
 
   useEffect(() => {
     loadReport(selectedMonth);
+    return () => { reportRequest.current += 1; };
   }, [loadReport, selectedMonth]);
 
   const activeReport = report ?? selectedListItem;
-  const summary = report?.summary ?? null;
+  const summary = report?.summary ? { ...report.summary,
+    ...(report.summary.incomplete ? report.summary.coverage : {}) } : null;
+  const reportPositions = report?.positions.map((row) => row.incomplete && row.coverage ? { ...row, ...row.coverage } : row) ?? [];
+  const reportTags = report?.tags.map((row) => row.incomplete && row.coverage ? { ...row, ...row.coverage } : row) ?? [];
+  const missingPositions = report?.skipped_positions.filter((row) => row.incomplete) ?? [];
 
   return (
     <details className="card monthly-report-card">
@@ -713,7 +718,7 @@ export function MonthlyReportsPanel() {
             aria-label="Monthly report"
             value={selectedMonth}
             onChange={(event) => setSelectedMonth(event.target.value)}
-            disabled={listLoading || !reports.length}
+            disabled={listLoading || regenerating || !reports.length}
           >
             {reports.map((item) => (
               <option key={item.month} value={item.month}>
@@ -753,14 +758,21 @@ export function MonthlyReportsPanel() {
 
       {listLoading ? (
         <div className="loading">Loading monthly reports…</div>
+      ) : error && !report && !reportLoading ? (
+        <div className="empty-state">
+          <p>Report could not be loaded.</p>
+          <button type="button" className="btn secondary" onClick={() => selectedMonth ? loadReport(selectedMonth) : loadList()}>Retry</button>
+        </div>
       ) : !reports.length ? (
         <div className="empty-state">No monthly report available yet.</div>
       ) : reportLoading || !report || !summary ? (
         <div className="loading">Loading report…</div>
       ) : (
         <>
-          <p className="muted">{report.methodology}</p>
-          {summary.incomplete && <p role="status">Report incomplete: some lots lack dates, prices or exchange rates. Totals are unavailable.</p>}
+          {summary.incomplete && <div role="status">
+            <p>Partial report: figures include records with available prices and dates.</p>
+            <ul>{missingPositions.map((row) => <li key={row.position_id ?? row.symbol}>{row.symbol}: {row.reason}</li>)}</ul>
+          </div>}
           <div className="monthly-report-meta">
             <span>Generated {formatDate(report.generated_at)}</span>
             <span>{summary.positions_count} positions included</span>
@@ -773,12 +785,12 @@ export function MonthlyReportsPanel() {
             <ReportMetric label="Opening value + purchases" value={formatCurrency(summary.start_value, "EUR")} />
             <ReportMetric label="Closing value + sales" value={formatCurrency(summary.end_value, "EUR")} />
             <ReportMetric
-              label="Performance"
+              label={summary.incomplete ? "Performance (Partial)" : "Performance"}
               value={signedCurrency(summary.performance_value, "EUR")}
               className={valueClass(summary.performance_value)}
             />
             <ReportMetric
-              label="P/L / basis"
+              label={summary.incomplete ? "P/L / basis (Partial)" : "P/L / basis"}
               value={formatSignedPercent(summary.performance_pct)}
               className={valueClass(summary.performance_pct)}
             />
@@ -786,17 +798,17 @@ export function MonthlyReportsPanel() {
 
           <div className="monthly-report-section">
             <h3>Performance by tag</h3>
-            <TagRows rows={report.tags} />
+            <TagRows rows={reportTags} />
           </div>
 
           <div className="monthly-report-section">
             <h3>Performance by position</h3>
-            <PositionRows rows={report.positions} />
+            <PositionRows rows={reportPositions} />
           </div>
 
           <div className="monthly-report-section">
             <h3>Monthly performance by position</h3>
-            <MonthlyPositionsPerformanceChart rows={report.positions} />
+            <MonthlyPositionsPerformanceChart rows={reportPositions} />
           </div>
         </>
       )}

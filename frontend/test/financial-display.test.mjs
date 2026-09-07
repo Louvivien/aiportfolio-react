@@ -40,3 +40,59 @@ test('first tag table renders only tags with a positive known holding value', ()
   assert.match(html, /Active/);
   assert.doesNotMatch(html, /ClosedOnly|MissingValue/);
 });
+
+const apiStub = `data:text/javascript;base64,${Buffer.from(`
+export const fetchMonthlyReports = (...args) => globalThis.__monthlyApi.list(...args);
+export const fetchMonthlyReport = (...args) => globalThis.__monthlyApi.get(...args);
+export const regenerateMonthlyReport = (...args) => globalThis.__monthlyApi.regenerate(...args);
+`).toString('base64')}`;
+const chartsStub = `data:text/javascript;base64,${Buffer.from('export const Bar=()=>null,BarChart=()=>null,Cell=()=>null,ReferenceLine=()=>null,ResponsiveContainer=()=>null,Tooltip=()=>null,XAxis=()=>null,YAxis=()=>null;').toString('base64')}`;
+const { MonthlyReportsPanel } = await import(await moduleUrl('../src/components/MonthlyReportsPanel.tsx', {
+  '../api/client': apiStub, '../utils/format': format, '../utils/colors': colors, recharts: chartsStub,
+}));
+const renderer = require('react-test-renderer');
+const reportFixture = (month, gain) => ({ month, period_start: `${month}-01`, period_end: `${month}-28`, generated_at: '2026-09-07',
+  summary: { start_value: 1000, end_value: 1000 + gain, performance_value: gain, performance_pct: gain / 10, positions_count: 0, positions_skipped: 0 },
+  tags: [], positions: [], skipped_positions: [],
+});
+test('failed monthly request exits loading state and offers a working retry', async () => {
+  let attempt = 0;
+  globalThis.__monthlyApi = { list: async () => ({ reports: [{ month: '2026-08' }] }),
+    get: async () => { if (++attempt === 1) throw new Error('Request timed out'); return reportFixture('2026-08', 42); } };
+  let view;
+  await renderer.act(async () => { view = renderer.create(React.createElement(MonthlyReportsPanel)); });
+  let text = JSON.stringify(view.toJSON());
+  assert.match(text, /Report could not be loaded/);
+  assert.doesNotMatch(text, /Loading report…/);
+  const retry = view.root.findAllByType('button').find((b) => b.children.includes('Retry'));
+  await renderer.act(async () => { retry.props.onClick(); });
+  assert.match(JSON.stringify(view.toJSON()), /42\.00/);
+  await renderer.act(async () => view.unmount());
+});
+test('switching months ignores an older request that finishes last', async () => {
+  const pending = {};
+  globalThis.__monthlyApi = { list: async () => ({ reports: [{ month: '2026-08' }, { month: '2026-06' }] }),
+    get: (month) => new Promise((resolve) => { pending[month] = resolve; }) };
+  let view;
+  await renderer.act(async () => { view = renderer.create(React.createElement(MonthlyReportsPanel)); });
+  await renderer.act(async () => { view.root.findByType('select').props.onChange({ target: { value: '2026-06' } }); });
+  await renderer.act(async () => { pending['2026-06'](reportFixture('2026-06', 202)); });
+  await renderer.act(async () => { pending['2026-08'](reportFixture('2026-08', 101)); });
+  assert.match(JSON.stringify(view.toJSON()), /202\.00/);
+  assert.doesNotMatch(JSON.stringify(view.toJSON()), /101\.00/);
+  await renderer.act(async () => view.unmount());
+});
+test('monthly report shows available totals and names a security missing history', async () => {
+  const report = reportFixture('2026-08', 42);
+  report.summary.coverage = { ...report.summary };
+  Object.assign(report.summary, { incomplete: true, start_value: null, end_value: null, performance_value: null, performance_pct: null });
+  report.skipped_positions = [{ symbol: 'URNU.DE', incomplete: true, reason: 'Missing boundary or sale price.' }];
+  globalThis.__monthlyApi = { list: async () => ({ reports: [{ month: '2026-08' }] }), get: async () => report };
+  let view;
+  await renderer.act(async () => { view = renderer.create(React.createElement(MonthlyReportsPanel)); });
+  const text = JSON.stringify(view.toJSON());
+  assert.match(text, /42\.00/);
+  assert.match(text, /Partial report/);
+  assert.match(text, /URNU.DE/);
+  await renderer.act(async () => view.unmount());
+});

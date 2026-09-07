@@ -116,11 +116,11 @@ export function fetchMonthlyReports(): Promise<MonthlyReportsListResponse> {
 }
 
 export function fetchMonthlyReport(month: string): Promise<MonthlyPerformanceReport> {
-  return unwrap(client.get<MonthlyPerformanceReport>(`/monthly-reports/${month}`));
+  return unwrap(client.get<MonthlyPerformanceReport>(`/monthly-reports/${month}`, { timeout: 60000 }));
 }
 
 export function regenerateMonthlyReport(month: string): Promise<MonthlyPerformanceReport> {
-  return unwrap(client.post<MonthlyPerformanceReport>(`/monthly-reports/${month}/regenerate`));
+  return unwrap(client.post<MonthlyPerformanceReport>(`/monthly-reports/${month}/regenerate`, undefined, { timeout: 60000 }));
 }
 
 export function createPosition(payload: CreatePositionPayload): Promise<Position> {
