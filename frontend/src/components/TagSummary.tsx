@@ -1,3 +1,4 @@
+import { visibleTagSummaries } from "../utils/portfolio";
 import { useEffect, useState } from "react";
 import type { TagSummaryRow } from "../api/types";
 import { colorFromScaleIntraday } from "../utils/colors";
@@ -53,12 +54,13 @@ const loadColumns = (): TagSummaryColumns => {
 };
 
 export function TagSummary({
-  rows,
+  rows: allRows,
   activeFilter,
   onFilter,
   onOpenTimeseries,
   totalMarketValueOpen,
 }: TagSummaryProps) {
+  const rows = visibleTagSummaries(allRows);
   const [columns, setColumns] = useState<TagSummaryColumns>(() => loadColumns());
 
   useEffect(() => {

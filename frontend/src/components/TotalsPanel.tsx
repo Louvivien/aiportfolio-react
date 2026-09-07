@@ -1,4 +1,4 @@
-import type { PortfolioTotals } from "../utils/portfolio";
+import type { PortfolioTotals, TotalMetric } from "../utils/portfolio";
 import { formatCurrency, formatSignedPercent } from "../utils/format";
 
 interface TotalsPanelProps {
@@ -10,9 +10,15 @@ const POSITIVE_BADGE = "#34a853";
 const NEGATIVE_BADGE = "#d93025";
 
 export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
-  const intradayColor = (totals.portfolioIntradayPct ?? 0) >= 0 ? POSITIVE_BADGE : NEGATIVE_BADGE;
-  const tenDayColor = (totals.tenDayPctTotal ?? 0) >= 0 ? POSITIVE_BADGE : NEGATIVE_BADGE;
-  const oneYearColor = (totals.oneYearPctTotal ?? 0) >= 0 ? POSITIVE_BADGE : NEGATIVE_BADGE;
+  const badgeColor = (value: number | null) => value === null ? "#64748b" : value >= 0 ? POSITIVE_BADGE : NEGATIVE_BADGE;
+  const intradayColor = badgeColor(totals.portfolioIntradayPct);
+  const tenDayColor = badgeColor(totals.tenDayPctTotal);
+  const oneYearColor = badgeColor(totals.oneYearPctTotal);
+  const partial = (key: TotalMetric) => totals.coverage[key].missingLots > 0
+    ? <small title={totals.coverage[key].issues.join("\n")} style={{ marginLeft: 6 }}>Partial</small> : null;
+  const money = (value: number | null) => value === null ? "Unavailable" : formatCurrency(value, currency);
+  const percentage = (value: number | null) => value === null ? "Unavailable" : formatSignedPercent(value);
+  const issues = [...new Set(Object.values(totals.coverage).flatMap((entry) => entry.issues))];
 
   return (
     <div className="card">
@@ -21,31 +27,37 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
       </div>
       <p className="muted">EUR estimates using dated ECB rates. Period percentages are lot P/L divided by
         opening value plus purchases during the period, including closed lots. They are not account returns.
-        Cash, fees and dividends are excluded. Missing prices, dates or FX show as —.</p>
+        Cash, fees and dividends are excluded. Partial figures include only calculable lots; percentages use the same lots’ cost basis.</p>
+      {issues.length > 0 && (
+        <details style={{ marginBottom: 16 }}>
+          <summary>Some records are incomplete — see what is missing</summary>
+          <ul>{issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+        </details>
+      )}
       <div className="totals-layout">
         <div className="totals-primary">
           <div className="metric-card">
             <h4>Cost Basis (Open)</h4>
-            <p>{formatCurrency(totals.totalInvestAll, currency)}</p>
+            <p>{money(totals.totalInvestAll)} {partial("open_cost")}</p>
           </div>
           <div className="metric-card">
             <h4>Total Market Value (Open)</h4>
-            <p>{formatCurrency(totals.totalMarketValueOpen, currency)}</p>
+            <p>{money(totals.totalMarketValueOpen)} {partial("market_value")}</p>
           </div>
           <div className="metric-card">
             <h4>Global P/L (Incl. Closed)</h4>
-            <p>{formatCurrency(totals.plVsInvestAll, currency)}</p>
+            <p>{money(totals.plVsInvestAll)} {partial("total_pl")}</p>
           </div>
           <div className="metric-card">
             <h4>P/L / Total Cost Basis</h4>
-            <p>{formatSignedPercent(totals.plPctVsInvestAll)}</p>
+            <p>{percentage(totals.plPctVsInvestAll)} {partial("total_pl")}</p>
           </div>
         </div>
         <div className="totals-secondary">
           <div className="metric-card muted-block">
             <div className="muted-label">Realized P/L (All Closed Lots)</div>
             <div className="muted-value">
-              {formatCurrency(totals.realizedPlClosed, currency)}
+              {money(totals.realizedPlClosed)} {partial("realized_pl")}
             </div>
           </div>
         </div>
@@ -55,22 +67,22 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
           className="badge"
           style={{ background: intradayColor, color: "#fff", fontSize: 14, padding: "6px 12px" }}
         >
-          Today lot P/L: {formatCurrency(totals.intradayAbsSum, currency)} (
-          {formatSignedPercent(totals.portfolioIntradayPct)})
+          Today lot P/L: {money(totals.intradayAbsSum)} (
+          {percentage(totals.portfolioIntradayPct)}) {partial("intraday")}
         </span>
         <span
           className="badge"
           style={{ background: tenDayColor, color: "#fff", fontSize: 14, padding: "6px 12px" }}
         >
-          10D lot P/L: {formatCurrency(totals.tenDayAbsolute, currency)} (
-          {formatSignedPercent(totals.tenDayPctTotal)})
+          10D lot P/L: {money(totals.tenDayAbsolute)} (
+          {percentage(totals.tenDayPctTotal)}) {partial("ten_day")}
         </span>
         <span
           className="badge"
           style={{ background: oneYearColor, color: "#fff", fontSize: 14, padding: "6px 12px" }}
         >
-          1Y lot P/L: {formatCurrency(totals.oneYearAbsolute, currency)} (
-          {formatSignedPercent(totals.oneYearPctTotal)})
+          1Y lot P/L: {money(totals.oneYearAbsolute)} (
+          {percentage(totals.oneYearPctTotal)}) {partial("one_year")}
         </span>
       </div>
     </div>

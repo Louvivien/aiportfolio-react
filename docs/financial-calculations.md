@@ -31,3 +31,9 @@ Automatic P/E needs positive latest EPS, matching quote/EPS currencies, an exact
 ## Validation
 
 Run `npm test`, `npm run typecheck`, `npm run lint`, and `npm run build:frontend` from the project root. Regression fixtures cover mixed EUR/USD valuations, pence, historical FX, partial closures, a synthetic EUR 204.70 loss case, staggered June purchases, period boundaries, stale/missing observations, report aggregation, historical holdings and EPS basis checks. They are not a reconciliation of the user's broker holdings.
+
+## Incomplete records in dashboard totals
+
+Exact backend totals remain unavailable if an eligible lot cannot be calculated. The API also provides coverage metadata with the known subtotal, matching cost basis, number of omitted lots and missing-data reasons. Dashboard totals display that subtotal with a **Partial** label, and identify the affected symbols in an expandable list. Percentages use only the basis of the same included lots. Totals exports carry the partial flag and missing-data details. A metric with no calculable lots stays unavailable rather than becoming a fabricated zero.
+
+The first tag table and its exports omit tags whose current market value is missing, non-finite, zero or negative, including tags attached only to closed positions. Individual tag filters remain available through the full tag list.

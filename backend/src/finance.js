@@ -75,13 +75,26 @@ export function lotContribution(lot, series, bounds, convert = (value) => value,
   };
 }
 
+// Keep exact totals unavailable when incomplete, and expose a separately labelled
+// subtotal. Gain percentages always use the basis of the same included lots.
+export function summarizeCoverage(entries) {
+  const included = entries.filter((entry) => number(entry.value) !== null &&
+    (entry.basis === undefined || number(entry.basis) !== null));
+  const missing = entries.filter((entry) => !included.includes(entry));
+  const value = included.length || !entries.length ? sum(included.map((entry) => entry.value)) : null;
+  const basis = included.length || !entries.length ? sum(included.map((entry) => entry.basis ?? 0)) : null;
+  return { value, basis, included_lots: included.length, missing_lots: missing.length,
+    issues: [...new Set(missing.map((entry) => entry.reason || 'Missing price or exchange rate.'))] };
+}
+
 export function periodPerformance(lots, series, bounds, convert, currentPrice) {
   const results = lots.map((lot) => lotContribution(lot, series, bounds, convert, currentPrice));
-  if (results.some((r) => r.incomplete)) return { basis: null, gain: null, percent: null };
-  const included = results.filter((r) => !r.skipped);
-  const basis = sum(included.map((r) => r.start_value));
-  const gain = sum(included.map((r) => r.performance_value));
-  return { basis, gain, percent: percent(gain, basis) };
+  const coverage = summarizeCoverage(results.filter((r) => !r.skipped || r.incomplete).map((r) => ({
+    value: r.skipped ? null : r.performance_value, basis: r.skipped ? null : r.start_value, reason: r.reason,
+  })));
+  const gain = coverage.missing_lots ? null : coverage.value;
+  const basis = coverage.missing_lots ? null : coverage.basis;
+  return { basis, gain, percent: percent(gain, basis), coverage };
 }
 
 export function valuePosition(doc, series, convert, today = day(new Date())) {
@@ -96,6 +109,26 @@ export function valuePosition(doc, series, convert, today = day(new Date())) {
   const proceeds = sum(closed.map((lot) => convert(multiply(lot.quantity, lot.closing_price), lot.closing_date)));
   const realized = difference(proceeds, closedCost);
   const unrealized = difference(marketValue, openCost);
+  const openEntries = open.map((lot) => {
+    const basis = cost(lot);
+    const market = convert(multiply(current, lot.quantity), today);
+    return { basis, market, value: difference(market, basis),
+      reason: basis === null && !lot.purchase_date ? 'Missing purchase date for historical FX.' : 'Missing quote or exchange rate.' };
+  });
+  const closedEntries = closed.map((lot) => {
+    const basis = cost(lot);
+    const proceeds = convert(multiply(lot.quantity, lot.closing_price), lot.closing_date);
+    return { basis, value: difference(proceeds, basis),
+      reason: lot.closing_price === null ? 'Missing sale price.' : !lot.purchase_date || !lot.closing_date
+        ? 'Missing purchase or sale date for historical FX.' : 'Missing historical exchange rate.' };
+  });
+  const coverage = {
+    open_cost: summarizeCoverage(openEntries.map((entry) => ({ value: entry.basis, reason: entry.reason }))),
+    closed_cost: summarizeCoverage(closedEntries.map((entry) => ({ value: entry.basis, reason: entry.reason }))),
+    market_value: summarizeCoverage(openEntries.map((entry) => ({ value: entry.market, reason: entry.reason }))),
+    unrealized_pl: summarizeCoverage(openEntries), realized_pl: summarizeCoverage(closedEntries),
+    total_pl: summarizeCoverage([...openEntries, ...closedEntries]),
+  };
   const ten = new Date(`${today}T00:00:00Z`);
   ten.setUTCDate(ten.getUTCDate() - 9);
   const year = new Date(`${today}T00:00:00Z`);
@@ -103,7 +136,7 @@ export function valuePosition(doc, series, convert, today = day(new Date())) {
   year.setUTCDate(year.getUTCDate() + 1);
   const period = (start) => periodPerformance(lots, series, { periodStart: start, periodEnd: today }, convert, current);
   return {
-    currency: 'EUR', calculation_version: CALCULATION_VERSION,
+    currency: 'EUR', calculation_version: CALCULATION_VERSION, coverage,
     open_cost: openCost, closed_cost: closedCost, market_value: marketValue,
     realized_pl: realized, unrealized_pl: unrealized, total_pl: sum([realized, unrealized]),
     intraday: period(today), ten_day: period(day(ten)), one_year: period(day(year)),

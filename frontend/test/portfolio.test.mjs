@@ -6,7 +6,7 @@ import { valuePosition } from '../../backend/src/finance.js';
 import { currencyConverter } from '../../backend/src/fxService.js';
 const source = await fs.readFile(new URL('../src/utils/portfolio.ts', import.meta.url), 'utf8');
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { buildPortfolioView } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+const { buildPortfolioView, visibleTagSummaries } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
 const valued = (position, convert = (v) => v) => ({ ...position,
   valuation: valuePosition(position, [], convert, '2026-09-07'),
   native_valuation: valuePosition(position, [], (v) => v, '2026-09-07'),
@@ -43,4 +43,28 @@ test('missing FX or incomplete history remains unavailable through frontend aggr
   assert.equal(totals.totalMarketValueOpen, null);
   assert.equal(totals.oneYearAbsolute, null);
   assert.equal(totals.oneYearPctTotal, null);
+});
+
+test('dashboard shows a labelled partial subtotal instead of blanking all known gains', () => {
+  const known = valued({ symbol: 'KNOWN', currency: 'EUR', tags: [], quantity: 1, cost_price: 100, current_price: 120, purchase_date: '2026-09-04' });
+  const unknown = valued({ symbol: 'UNDATED', currency: 'USD', tags: [], quantity: 1, cost_price: 1000, is_closed: true, closing_price: 900 }, () => null);
+  const { totals } = buildPortfolioView([known, unknown]);
+  assert.equal(totals.plVsInvestAll, 20);
+  assert.equal(totals.plPctVsInvestAll, 20); // Excluded cost must not dilute the denominator.
+  assert.equal(totals.coverage.total_pl.missingLots, 1);
+  assert.ok(totals.coverage.total_pl.issues.some((issue) => issue.startsWith('UNDATED:')));
+  assert.equal(totals.oneYearAbsolute, 20);
+  assert.equal(totals.oneYearPctTotal, 20);
+  assert.equal(totals.coverage.one_year.missingLots, 1);
+});
+test('legacy API data without coverage still shows known values with a partial label', () => {
+  const known = valued({ symbol: 'KNOWN', currency: 'EUR', tags: [], quantity: 1, cost_price: 100, current_price: 120, purchase_date: '2026-09-04' });
+  delete known.valuation.coverage;
+  const { totals } = buildPortfolioView([known, { symbol: 'MISSING', tags: [] }]);
+  assert.equal(totals.plVsInvestAll, 20);
+  assert.equal(totals.coverage.total_pl.missingLots, 1);
+});
+test('tag summary excludes empty, zero and non-finite values but retains small positive holdings', () => {
+  const rows = [null, 0, NaN, Infinity, -1, 0.001, 250].map((value, i) => ({ tag: String(i), total_market_value: value }));
+  assert.deepEqual(visibleTagSummaries(rows).map((row) => row.total_market_value), [0.001, 250]);
 });

@@ -1,9 +1,19 @@
+export interface ValuationCoverage {
+  value: number | null;
+  basis: number | null;
+  included_lots: number;
+  missing_lots: number;
+  issues: string[];
+}
+
 export interface PeriodPerformance {
+  coverage?: ValuationCoverage;
   basis: number | null;
   gain: number | null;
   percent: number | null;
 }
 export interface PositionValuation {
+  coverage?: Partial<Record<'open_cost' | 'closed_cost' | 'market_value' | 'realized_pl' | 'unrealized_pl' | 'total_pl', ValuationCoverage>>;
   currency: string;
   open_cost: number | null;
   closed_cost: number | null;

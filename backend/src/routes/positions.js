@@ -1089,7 +1089,7 @@ router.get("/tags/summary", async (req, res, next) => {
         total_market_value: sum(selected.map((d) => d.valuation.market_value)),
         total_unrealized_pl: sum(selected.map((d) => d.valuation.unrealized_pl)),
         intraday_change_pct: period("intraday"), change_10d_pct: period("ten_day"), change_1y_pct: period("one_year") };
-    }));
+    }).filter((row) => Number.isFinite(row.total_market_value) && row.total_market_value > 0));
   } catch (error) { next(error); }
 });
 

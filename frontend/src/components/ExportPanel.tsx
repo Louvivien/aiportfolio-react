@@ -124,19 +124,20 @@ export function ExportPanel({ positions, rawPositions, tagSummary, totals }: Exp
   const exportTotals = useCallback(() => {
     const stamp = timestampForFilename();
     const rows = [
-      { metric: "total_invest_open", value: totals.totalInvestAll },
-      { metric: "total_market_value_open", value: totals.totalMarketValueOpen },
-      { metric: "global_pl_incl_closed", value: totals.plVsInvestAll },
-      { metric: "global_pl_over_total_cost_basis_pct", value: totals.plPctVsInvestAll },
-      { metric: "realized_pl_closed", value: totals.realizedPlClosed },
-      { metric: "intraday_lot_pl", value: totals.intradayAbsSum },
-      { metric: "intraday_lot_pl_over_basis_pct", value: totals.portfolioIntradayPct },
-      { metric: "ten_day_lot_pl", value: totals.tenDayAbsolute },
-      { metric: "ten_day_lot_pl_over_basis_pct", value: totals.tenDayPctTotal },
-      { metric: "one_year_lot_pl", value: totals.oneYearAbsolute },
-      { metric: "one_year_lot_pl_over_basis_pct", value: totals.oneYearPctTotal },
-    ];
-    downloadCsv(`aiportfolio_totals_${stamp}.csv`, rows.map((row) => ({ ...row, currency: "EUR", methodology: "lot_pl_over_basis" })), ["metric", "value", "currency", "methodology"]);
+      { metric: "total_invest_open", value: totals.totalInvestAll, coverage: totals.coverage.open_cost },
+      { metric: "total_market_value_open", value: totals.totalMarketValueOpen, coverage: totals.coverage.market_value },
+      { metric: "global_pl_incl_closed", value: totals.plVsInvestAll, coverage: totals.coverage.total_pl },
+      { metric: "global_pl_over_total_cost_basis_pct", value: totals.plPctVsInvestAll, coverage: totals.coverage.total_pl },
+      { metric: "realized_pl_closed", value: totals.realizedPlClosed, coverage: totals.coverage.realized_pl },
+      { metric: "intraday_lot_pl", value: totals.intradayAbsSum, coverage: totals.coverage.intraday },
+      { metric: "intraday_lot_pl_over_basis_pct", value: totals.portfolioIntradayPct, coverage: totals.coverage.intraday },
+      { metric: "ten_day_lot_pl", value: totals.tenDayAbsolute, coverage: totals.coverage.ten_day },
+      { metric: "ten_day_lot_pl_over_basis_pct", value: totals.tenDayPctTotal, coverage: totals.coverage.ten_day },
+      { metric: "one_year_lot_pl", value: totals.oneYearAbsolute, coverage: totals.coverage.one_year },
+      { metric: "one_year_lot_pl_over_basis_pct", value: totals.oneYearPctTotal, coverage: totals.coverage.one_year },
+    ].map(({ coverage, ...row }) => ({ ...row, currency: "EUR", methodology: "lot_pl_over_basis",
+      partial: coverage.missingLots > 0, missing_lots: coverage.missingLots, issues: coverage.issues.join("; ") }));
+    downloadCsv(`aiportfolio_totals_${stamp}.csv`, rows, ["metric", "value", "currency", "methodology", "partial", "missing_lots", "issues"]);
   }, [totals]);
 
   const exportJson = useCallback(() => {

@@ -114,3 +114,35 @@ test('an explicitly closed lot never borrows the aggregate date or price of a di
   assert.equal(lots[0].closing_date, null);
   assert.equal(lots[0].closing_price, null);
 });
+test('one undated closed trade does not discard the calculable period subtotal', () => {
+  const result = periodPerformance([lot(), lot({ is_closed: true, closing_date: null })], history, june, identity);
+  assert.equal(result.gain, null); // Exact total is still unknown.
+  assert.equal(result.coverage.value, 300);
+  assert.equal(result.coverage.basis, 1500);
+  assert.equal(result.coverage.included_lots, 1);
+  assert.equal(result.coverage.missing_lots, 1);
+  assert.deepEqual(result.coverage.issues, ['Missing closing date.']);
+});
+test('realized subtotal and its basis include only the same fully valued closed lots', () => {
+  const doc = { current_price: 120, purchase_lots: [
+    lot({ quantity: 1, cost_price: 100 }),
+    lot({ quantity: 1, cost_price: 100, is_closed: true, closing_price: 80, closing_date: '2026-06-15' }),
+    lot({ quantity: 1, cost_price: 200, is_closed: true, closing_price: 160, closing_date: null }),
+  ] };
+  const convert = (value, date) => date ? value : null;
+  const result = valuePosition(doc, history, convert, '2026-06-30');
+  assert.equal(result.realized_pl, null);
+  assert.equal(result.coverage.realized_pl.value, -20);
+  assert.equal(result.coverage.realized_pl.basis, 100);
+  assert.equal(result.coverage.realized_pl.missing_lots, 1);
+  assert.equal(result.coverage.total_pl.value, 0);
+  assert.equal(result.coverage.total_pl.basis, 200);
+});
+test('no calculable lots is unavailable, while no eligible lots is a genuine zero', () => {
+  const incomplete = periodPerformance([lot({ purchase_date: null })], history, june, identity);
+  assert.equal(incomplete.coverage.value, null);
+  assert.equal(incomplete.coverage.missing_lots, 1);
+  const empty = periodPerformance([lot({ purchase_date: '2026-07-01' })], history, june, identity);
+  assert.equal(empty.coverage.value, 0);
+  assert.equal(empty.coverage.missing_lots, 0);
+});

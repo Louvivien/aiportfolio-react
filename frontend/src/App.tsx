@@ -28,7 +28,7 @@ import type {
   TagTimeseriesResponse,
   UpdatePositionPayload,
 } from "./api/types";
-import { buildPortfolioView } from "./utils/portfolio";
+import { buildPortfolioView, visibleTagSummaries } from "./utils/portfolio";
 
 const defaultSortConfig: SortConfig = { column: "value", direction: "desc" };
 
@@ -221,7 +221,7 @@ function App() {
       ]);
       setPositions(positionsRes);
       setTags(tagsRes);
-      setTagSummary(tagSummaryRes);
+      setTagSummary(visibleTagSummaries(tagSummaryRes));
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {

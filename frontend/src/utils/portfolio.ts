@@ -1,4 +1,4 @@
-import type { Position } from "../api/types";
+import type { Position, ValuationCoverage } from "../api/types";
 
 export interface PositionRow {
   position: Position;
@@ -24,7 +24,13 @@ export interface RangeStats {
   oneYearRange: { min: number; max: number };
 }
 
+export type TotalMetric = 'open_cost' | 'closed_cost' | 'market_value' | 'realized_pl' | 'unrealized_pl' | 'total_pl' | 'intraday' | 'ten_day' | 'one_year';
+export interface TotalCoverage {
+  missingLots: number;
+  issues: string[];
+}
 export interface PortfolioTotals {
+  coverage: Record<TotalMetric, TotalCoverage>;
   totalInvestAll: number | null;
   totalInvestClosed: number | null;
   totalMarketValueOpen: number | null;
@@ -90,26 +96,53 @@ export function buildPortfolioView(positions: Position[]): PortfolioComputation 
       oneYearPercent: native?.one_year.percent ?? null,
     };
   });
-  const metric = (key: 'open_cost' | 'closed_cost' | 'market_value' | 'realized_pl' | 'unrealized_pl' | 'total_pl') =>
-    sum(positions.map((p) => p.valuation?.[key]));
-  const period = (key: 'intraday' | 'ten_day' | 'one_year') => {
-    const gain = sum(positions.map((p) => p.valuation?.[key].gain));
-    return { gain, percent: pct(gain, sum(positions.map((p) => p.valuation?.[key].basis))) };
+  const coverage = {} as Record<TotalMetric, TotalCoverage>;
+  const aggregate = (key: TotalMetric, entries: { position: Position; data?: ValuationCoverage; value: number | null | undefined; basis?: number | null }[]) => {
+    const included = entries.filter((entry) => finite(entry.data ? entry.data.value : entry.value) !== null);
+    const missingLots = entries.reduce((total, entry) => total + (entry.data?.missing_lots ?? (finite(entry.value) === null ? 1 : 0)), 0);
+    const hasIncludedLots = included.some((entry) => entry.data ? entry.data.included_lots > 0 : true);
+    const value = missingLots > 0 && !hasIncludedLots ? null
+      : included.length || !entries.length ? sum(included.map((entry) => entry.data ? entry.data.value : entry.value)) : null;
+    const basis = included.length || !entries.length ? sum(included.map((entry) => entry.data ? entry.data.basis : entry.basis)) : null;
+    coverage[key] = {
+      missingLots,
+      issues: entries.flatMap((entry) => {
+        if (entry.data ? !entry.data.missing_lots : finite(entry.value) !== null) return [];
+        const reasons = entry.data?.issues.length ? entry.data.issues : ['Valuation unavailable.'];
+        return reasons.map((reason) => `${entry.position.symbol}: ${reason}`);
+      }),
+    };
+    coverage[key].issues = [...new Set(coverage[key].issues)];
+    return { value, basis };
   };
-  const totalInvestAll = metric('open_cost');
-  const totalInvestClosed = metric('closed_cost');
+  const metric = (key: 'open_cost' | 'closed_cost' | 'market_value' | 'realized_pl' | 'unrealized_pl' | 'total_pl') =>
+    aggregate(key, positions.map((position) => ({ position, data: position.valuation?.coverage?.[key], value: position.valuation?.[key],
+      basis: key === 'total_pl' ? sum([position.valuation?.open_cost, position.valuation?.closed_cost]) : position.valuation?.open_cost })));
+  const period = (key: 'intraday' | 'ten_day' | 'one_year') => {
+    const result = aggregate(key, positions.map((position) => ({ position, data: position.valuation?.[key].coverage,
+      value: position.valuation?.[key].gain, basis: position.valuation?.[key].basis })));
+    return { gain: result.value, percent: pct(result.value, result.basis) };
+  };
+  const totalInvestAll = metric('open_cost').value;
+  const totalInvestClosed = metric('closed_cost').value;
   const plOpen = metric('unrealized_pl');
-  const plVsInvestAll = metric('total_pl');
+  const global = metric('total_pl');
   const intraday = period('intraday'), ten = period('ten_day'), year = period('one_year');
+  const market = metric('market_value').value;
+  const realized = metric('realized_pl').value;
   return { rows, ranges: {
     pnlRange: range(rows.map((r) => r.pnlValue)), intradayRange: range(rows.map((r) => r.intradayPercent)),
     tenDayRange: range(rows.map((r) => r.tenDayPercent)), oneYearRange: range(rows.map((r) => r.oneYearPercent)),
   }, totals: {
-    totalInvestAll, totalInvestClosed, totalMarketValueOpen: metric('market_value'),
-    plOpen, plOpenPct: pct(plOpen, totalInvestAll), plVsInvestAll,
-    plPctVsInvestAll: pct(plVsInvestAll, sum([totalInvestAll, totalInvestClosed])),
+    coverage, totalInvestAll, totalInvestClosed, totalMarketValueOpen: market,
+    plOpen: plOpen.value, plOpenPct: pct(plOpen.value, plOpen.basis), plVsInvestAll: global.value,
+    plPctVsInvestAll: pct(global.value, global.basis),
     intradayAbsSum: intraday.gain, portfolioIntradayPct: intraday.percent,
     tenDayAbsolute: ten.gain, tenDayPctTotal: ten.percent,
-    oneYearAbsolute: year.gain, oneYearPctTotal: year.percent, realizedPlClosed: metric('realized_pl'),
+    oneYearAbsolute: year.gain, oneYearPctTotal: year.percent, realizedPlClosed: realized,
   } };
+}
+
+export function visibleTagSummaries<T extends { total_market_value: number | null }>(rows: T[]): T[] {
+  return rows.filter((row) => Number.isFinite(row.total_market_value) && row.total_market_value !== null && row.total_market_value > 0);
 }
