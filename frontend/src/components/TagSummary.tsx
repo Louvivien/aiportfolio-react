@@ -8,7 +8,7 @@ interface TagSummaryProps {
   activeFilter: string | null;
   onFilter: (tag: string | null) => void;
   onOpenTimeseries: (selection: string[]) => void;
-  totalMarketValueOpen: number;
+  totalMarketValueOpen: number | null;
 }
 
 type TagSummaryColumns = {
@@ -169,7 +169,7 @@ export function TagSummary({
                   checked={columns.tenDayPct}
                   onChange={() => toggleColumn("tenDayPct")}
                 />
-                10D %
+                10D lot P/L %
               </label>
               <label className="checkbox-row">
                 <input
@@ -177,7 +177,7 @@ export function TagSummary({
                   checked={columns.oneYearPct}
                   onChange={() => toggleColumn("oneYearPct")}
                 />
-                1Y %
+                1Y lot P/L %
               </label>
               <label className="checkbox-row">
                 <input
@@ -199,8 +199,8 @@ export function TagSummary({
                   {columns.allocation && <th>Alloc %</th>}
                   {columns.unrealizedPl && <th>Unrealized P/L</th>}
                   {columns.intradayPct && <th>Intraday %</th>}
-                  {columns.tenDayPct && <th>10D %</th>}
-                  {columns.oneYearPct && <th>1Y %</th>}
+                  {columns.tenDayPct && <th>10D lot P/L %</th>}
+                  {columns.oneYearPct && <th>1Y lot P/L %</th>}
                   {columns.chart && <th>Chart</th>}
                 </tr>
               </thead>
@@ -249,7 +249,7 @@ export function TagSummary({
                       )}
                       {columns.allocation && (
                         <td>
-                          {totalMarketValueOpen ? (
+                          {totalMarketValueOpen && row.total_market_value !== null ? (
                             <span className="pill">
                               {formatNumber((row.total_market_value / totalMarketValueOpen) * 100)}%
                             </span>

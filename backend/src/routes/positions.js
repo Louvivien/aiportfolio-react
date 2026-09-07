@@ -1,3 +1,6 @@
+import { loadFxRates, currencyConverter } from "../fxService.js";
+import { addValuation } from "../valuationService.js";
+import { positionLots, safePeRatio, sum, percent, holdingsAt } from "../finance.js";
 import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { getCollections } from "../db.js";
@@ -227,7 +230,7 @@ const parseQueryNumber = (value, fallback, min, max) => {
   return Math.min(max, Math.max(min, Math.floor(parsed)));
 };
 
-const FUNDAMENTALS_VERSION = 2;
+const FUNDAMENTALS_VERSION = 3;
 
 const normalizeDisplayName = (value) => {
   if (value === null || value === undefined) {
@@ -264,37 +267,15 @@ const normalizeApiUrl = (value) => {
   }
 };
 
-function computeEffectivePrice(doc, priceEntry) {
-  const isClosed = asBoolean(doc?.is_closed);
-  const closing = doc?.closing_price;
-  const live = priceEntry?.current;
-  if (isClosed && closing !== null && closing !== undefined) {
-    return normaliseNumber(closing, 0);
-  }
-  return normaliseNumber(live, 0);
-}
-
-function enrichDocument(doc, priceEntry, tagNames) {
-  const oneYearAgo = new Date();
-  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
+async function enrichDocument(doc, priceEntry, tagNames) {
   const isClosed = asBoolean(doc?.is_closed);
   const resolvedClosingDate = isClosed
-    ? parseDateInput(doc?.closing_date) ?? parseDateInput(doc?.updated_at)
+    ? parseDateInput(doc?.closing_date)
     : null;
   const liveRaw = priceEntry?.current;
-  const live =
-    liveRaw === null || liveRaw === undefined ? null : normaliseNumber(liveRaw, NaN);
 
-  const purchaseDate = parseDateInput(doc?.purchase_date) ?? parseDateInput(doc?.created_at);
-  const purchaseLots = normalizePurchaseLots(doc?.purchase_lots, purchaseDate);
-  const resolvedPurchaseLots = purchaseLots.length
-    ? purchaseLots
-    : defaultPurchaseLotsFromPosition(doc, purchaseDate);
 
-  const costRaw = doc?.cost_price;
-  const cost =
-    costRaw === null || costRaw === undefined ? null : normaliseNumber(costRaw, NaN);
+  const resolvedPurchaseLots = positionLots(doc);
 
   const historicRaw = priceEntry?.price_1y;
   const historic =
@@ -335,25 +316,8 @@ function enrichDocument(doc, priceEntry, tagNames) {
   const intradayPct =
     intradayAllowed && end !== null && prev !== null ? ((end / prev) - 1) * 100 : null;
 
-  let price1yBase = null;
-  let change1yPct = null;
-  if (end !== null && end !== 0) {
-    if (
-      purchaseDate &&
-      purchaseDate > oneYearAgo &&
-      cost !== null &&
-      Number.isFinite(cost) &&
-      cost !== 0
-    ) {
-      price1yBase = cost;
-    } else if (historic !== null && Number.isFinite(historic) && historic !== 0) {
-      price1yBase = historic;
-    }
-
-    if (price1yBase !== null) {
-      change1yPct = ((end / price1yBase) - 1) * 100;
-    }
-  }
+  const price1yBase = historic;
+  const change1yPct = end !== null && historic > 0 ? (end / historic - 1) * 100 : null;
 
   const overrides = normaliseOverrides(doc?.fundamentals_overrides);
   const snapshot =
@@ -381,17 +345,13 @@ function enrichDocument(doc, priceEntry, tagNames) {
     ? storedQuickRatio
     : snapshotQuickRatio ?? storedQuickRatio;
 
-  const epsForPe =
-    parseNullableNumber(snapshot?.epsDilutedPositive) ?? parseNullableNumber(snapshot?.epsDiluted);
-  const computedPeRatio = computePeRatio(end, epsForPe);
-  const peRatioValue = isOverrideEnabled(overrides, "pe_ratio")
-    ? storedPeRatio
-    : computedPeRatio ?? storedPeRatio;
+  const computedPeRatio = safePeRatio(end, priceEntry?.currency, snapshot, doc.symbol);
+  const peRatioValue = isOverrideEnabled(overrides, "pe_ratio") ? storedPeRatio : computedPeRatio;
 
   const computedPegRatio = computePegRatio(peRatioValue, parseNullableNumber(snapshot?.epsCagrPct));
   const pegRatioValue = isOverrideEnabled(overrides, "peg_ratio")
     ? storedPegRatio
-    : computedPegRatio ?? storedPegRatio;
+    : computedPegRatio;
 
   const safeDoc = doc && typeof doc === "object" ? { ...doc } : doc;
   if (safeDoc && Object.prototype.hasOwnProperty.call(safeDoc, "api_token")) {
@@ -418,11 +378,11 @@ function enrichDocument(doc, priceEntry, tagNames) {
     fundamentals_snapshot_updated_at: toIsoDateTime(doc?.fundamentals_snapshot_updated_at),
     fundamentals_snapshot: snapshot,
     closing_date: toIsoDateTime(resolvedClosingDate),
-    current_price: end,
+    current_price: parseNullableNumber(priceEntry?.current),
     long_name: priceEntry?.long_name ?? null,
     intraday_change: intradayChange,
     intraday_change_pct: intradayPct,
-    currency: priceEntry?.currency ?? null,
+    currency: priceEntry?.currency ?? doc?.currency ?? null,
     price_10d: tenBase,
     change_10d_pct: change10dPct,
     price_1y: price1yBase,
@@ -437,7 +397,7 @@ function enrichDocument(doc, priceEntry, tagNames) {
     indicator_disabled: asBoolean(doc?.indicator_disabled),
     stop_loss_set: asBoolean(doc?.stop_loss_set),
   };
-  return withStringId(enriched);
+  return addValuation(withStringId(enriched), doc);
 }
 
 function isMissingIndicatorField(value) {
@@ -453,16 +413,6 @@ function normaliseOverrides(value) {
 
 function isOverrideEnabled(overrides, key) {
   return Boolean(overrides && overrides[key]);
-}
-
-function computePeRatio(currentPrice, eps) {
-  const price = normaliseNumber(currentPrice, NaN);
-  const epsValue = normaliseNumber(eps, NaN);
-  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(epsValue) || epsValue === 0) {
-    return null;
-  }
-  const pe = price / epsValue;
-  return Number.isFinite(pe) ? pe : null;
 }
 
 function computePegRatio(pe, growthPct) {
@@ -575,7 +525,7 @@ router.get("/", async (req, res, next) => {
           snapshotUpdatedAt === null ||
           now.getTime() - snapshotUpdatedAt.getTime() > FUNDAMENTALS_CACHE_TTL_MS;
         const needsSnapshot =
-          !disabled && (!doc?.fundamentals_snapshot || doc.fundamentals_snapshot === null || snapshotStale);
+          !disabled && (!doc?.fundamentals_snapshot || doc.fundamentals_snapshot === null || snapshotStale || fundamentalsVersion < FUNDAMENTALS_VERSION);
         const needsRevenueGrowth =
           !isOverrideEnabled(overrides, "revenue_growth_yoy_pct") &&
           (isMissingIndicatorField(doc?.revenue_growth_yoy_pct) ||
@@ -654,7 +604,7 @@ router.get("/", async (req, res, next) => {
       });
     }
 
-    const result = docs.map((doc) => {
+    const result = await Promise.all(docs.map((doc) => {
       const sym = String(doc.symbol || "").toUpperCase();
       const apiKey = doc?._id ? String(doc._id) : null;
       const priceEntry = doc?.api_url && apiKey ? apiPriceMap[apiKey] ?? {} : priceMap[sym] ?? {};
@@ -662,7 +612,7 @@ router.get("/", async (req, res, next) => {
         .map((id) => tagNamesMap[String(id)])
         .filter(Boolean);
       return enrichDocument(doc, priceEntry, tagNames);
-    });
+    }));
 
     res.json(result);
   } catch (error) {
@@ -763,6 +713,7 @@ router.post("/", async (req, res, next) => {
     }
 
     const result = await positions.insertOne(doc);
+    await getCollections().monthlyReports.updateMany({}, { $set: { stale: true } });
     const inserted = await positions.findOne({ _id: result.insertedId });
     if (!inserted) {
       return res.status(500).json({ detail: "Failed to create position" });
@@ -782,17 +733,12 @@ router.post("/", async (req, res, next) => {
 
       priceEntry = computePriceEntryFromDailySeries(series, { intradayPoints: intradaySeries });
 
-      if (body.purchase_date === undefined && series.length) {
-        const inferred = new Date(series[0].ts);
-        inserted.purchase_date = inferred;
-        await positions.updateOne({ _id: inserted._id }, { $set: { purchase_date: inferred } });
-      }
     } else {
       const priceMap = symbol ? await getPrices([symbol]) : {};
       priceEntry = priceMap[symbol] ?? {};
     }
     const tagNames = await getTagNames(inserted?.tags);
-    const response = enrichDocument(inserted, priceEntry, tagNames);
+    const response = await enrichDocument(inserted, priceEntry, tagNames);
     res.status(201).json(response);
   } catch (error) {
     next(error);
@@ -945,6 +891,18 @@ router.put("/:id", async (req, res, next) => {
         updates.purchase_date = lotSummary.firstDate ?? parseDateInput(existing?.purchase_date) ?? null;
       }
     }
+    if (body.purchase_lots === undefined && Array.isArray(existing.purchase_lots) && existing.purchase_lots.length) {
+      const lotFields = ["quantity", "cost_price", "purchase_date", "is_closed", "closing_price", "closing_date"];
+      const touched = lotFields.filter((field) => body[field] !== undefined);
+      if (touched.length && existing.purchase_lots.length > 1) {
+        return res.status(400).json({ detail: "Update purchase_lots when editing a position with multiple lots." });
+      }
+      if (touched.length) {
+        const lot = { ...existing.purchase_lots[0] };
+        for (const field of lotFields) if (updates[field] !== undefined) lot[field] = updates[field];
+        updates.purchase_lots = [lot];
+      }
+    }
     if (isCustomApi) {
       updates.boursorama_forum_url = null;
     } else if (body.boursorama_forum_url !== undefined) {
@@ -1035,19 +993,10 @@ router.put("/:id", async (req, res, next) => {
       updates.fundamentals_updated_at = hasOverrides ? new Date() : null;
     }
 
-    if (
-      nextIsClosed &&
-      !hasClosingDate &&
-      body.is_closed === undefined &&
-      parseDateInput(existing?.closing_date) === null &&
-      parseDateInput(existing?.updated_at) !== null
-    ) {
-      updates.closing_date = parseDateInput(existing.updated_at);
-    }
-
     if (Object.keys(updates).length) {
       updates.updated_at = new Date();
       await positions.updateOne({ _id: objectId }, { $set: updates });
+      await getCollections().monthlyReports.updateMany({}, { $set: { stale: true } });
     }
 
     const doc = await positions.findOne({ _id: objectId });
@@ -1072,7 +1021,7 @@ router.put("/:id", async (req, res, next) => {
       priceEntry = priceMap[symbol] ?? {};
     }
     const tagNames = await getTagNames(doc?.tags);
-    const response = enrichDocument(doc, priceEntry, tagNames);
+    const response = await enrichDocument(doc, priceEntry, tagNames);
     res.json(response);
   } catch (error) {
     next(error);
@@ -1091,222 +1040,57 @@ router.delete("/:id", async (req, res, next) => {
     if (!result.deletedCount) {
       return res.status(404).json({ detail: "Position not found" });
     }
+    await getCollections().monthlyReports.updateMany({}, { $set: { stale: true } });
     res.json({ ok: true });
   } catch (error) {
     next(error);
   }
 });
 
+async function valuedDocuments() {
+  const { positions } = getCollections();
+  const docs = await positions.find().limit(1000).toArray();
+  const [prices, apiPrices] = await Promise.all([
+    getPrices(uniqueUppercaseSymbols(docs.filter((doc) => !doc.api_url))),
+    getCustomApiPricesForPositions(docs.filter((doc) => doc.api_url)),
+  ]);
+  return Promise.all(docs.map(async (doc) => {
+    const entry = doc.api_url ? apiPrices[String(doc._id)] : prices[doc.symbol];
+    return enrichDocument(doc, entry ?? {}, await getTagNames(doc.tags));
+  }));
+}
+
 router.get("/summary", async (req, res, next) => {
   try {
-    const { positions } = getCollections();
-    const docs = await positions.find().limit(1000).toArray();
-    const apiDocs = docs.filter((doc) => Boolean(doc?.api_url));
-    const stockDocs = docs.filter((doc) => !doc?.api_url);
-    const symbols = uniqueUppercaseSymbols(stockDocs);
-    const [priceMap, apiPriceMap] = await Promise.all([
-      getPrices(symbols),
-      getCustomApiPricesForPositions(apiDocs),
-    ]);
-
-    let totalMarketValue = 0;
-    let totalUnrealisedPl = 0;
-
-    docs.forEach((doc) => {
-      if (asBoolean(doc.is_closed)) {
-        return;
-      }
-      const sym = String(doc.symbol || "").toUpperCase();
-      const apiKey = doc?._id ? String(doc._id) : null;
-      const priceEntry = doc?.api_url && apiKey ? apiPriceMap[apiKey] ?? {} : priceMap[sym] ?? {};
-      const current = priceEntry.current;
-      if (current === null || current === undefined) {
-        return;
-      }
-      const qty = normaliseNumber(doc.quantity);
-      const cost = normaliseNumber(doc.cost_price);
-
-      totalMarketValue += current * qty;
-      totalUnrealisedPl += (current - cost) * qty;
-    });
-
-    res.json({
-      total_market_value: totalMarketValue,
-      total_unrealized_pl: totalUnrealisedPl,
-    });
-  } catch (error) {
-    next(error);
-  }
+    const docs = await valuedDocuments();
+    res.json({ currency: "EUR", total_market_value: sum(docs.map((d) => d.valuation.market_value)),
+      total_unrealized_pl: sum(docs.map((d) => d.valuation.unrealized_pl)),
+      total_realized_pl: sum(docs.map((d) => d.valuation.realized_pl)) });
+  } catch (error) { next(error); }
 });
-
 router.get("/summary/debug", async (req, res, next) => {
   try {
-    const { positions } = getCollections();
-    const docs = await positions.find().limit(1000).toArray();
-    const apiDocs = docs.filter((doc) => Boolean(doc?.api_url));
-    const stockDocs = docs.filter((doc) => !doc?.api_url);
-    const symbols = uniqueUppercaseSymbols(stockDocs);
-    const [priceMap, apiPriceMap] = await Promise.all([
-      getPrices(symbols),
-      getCustomApiPricesForPositions(apiDocs),
-    ]);
-
-    let total = 0;
-    const rows = [];
-    docs.forEach((doc) => {
-      if (asBoolean(doc.is_closed)) {
-        return;
-      }
-      const sym = String(doc.symbol || "").toUpperCase();
-      const qty = normaliseNumber(doc.quantity);
-      const apiKey = doc?._id ? String(doc._id) : null;
-      const entry = doc?.api_url && apiKey ? apiPriceMap[apiKey] ?? {} : priceMap[sym] ?? {};
-      const current = entry.current;
-
-      if (current === null || current === undefined) {
-        rows.push({
-          symbol: sym,
-          qty,
-          used_price: null,
-          subtotal: 0,
-          note: doc?.api_url ? "missing live price (custom API)" : "missing live price",
-        });
-        return;
-      }
-
-      const subtotal = current * qty;
-      total += subtotal;
-      rows.push({
-        symbol: sym,
-        qty,
-        used_price: current,
-        subtotal,
-        note: "",
-      });
-    });
-
-    res.json({ total_market_value: total, rows });
-  } catch (error) {
-    next(error);
-  }
+    const docs = await valuedDocuments();
+    const rows = docs.map((d) => ({ symbol: d.symbol, quote_currency: d.currency,
+      subtotal: d.valuation.market_value, fx: d.valuation.fx }));
+    res.json({ currency: "EUR", total_market_value: sum(rows.map((r) => r.subtotal)), rows });
+  } catch (error) { next(error); }
 });
-
 router.get("/tags/summary", async (req, res, next) => {
   try {
-    const { positions, tags } = getCollections();
-    const docs = await positions.find().limit(1000).toArray();
-    const apiDocs = docs.filter((doc) => Boolean(doc?.api_url));
-    const stockDocs = docs.filter((doc) => !doc?.api_url);
-    const symbols = uniqueUppercaseSymbols(stockDocs);
-    const [priceMap, apiPriceMap] = await Promise.all([
-      getPrices(symbols),
-      getCustomApiPricesForPositions(apiDocs),
-    ]);
-
-    const allTagIds = new Set();
-    docs.forEach((doc) => ensureArray(doc.tags).forEach((tag) => allTagIds.add(String(tag))));
-    const tagDocs = Array.from(allTagIds).length
-      ? await tags
-          .find({ _id: { $in: Array.from(allTagIds).map((id) => new ObjectId(id)) } })
-          .toArray()
-      : [];
-    const tagNameMap = new Map(tagDocs.map((doc) => [String(doc._id), doc.name]));
-
-    const buckets = new Map();
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
-    docs.forEach((doc) => {
-      if (asBoolean(doc.is_closed)) {
-        return;
-      }
-      const sym = String(doc.symbol || "").toUpperCase();
-      const apiKey = doc?._id ? String(doc._id) : null;
-      const priceEntry = doc?.api_url && apiKey ? apiPriceMap[apiKey] ?? {} : priceMap[sym] ?? {};
-      const current = priceEntry.current;
-      if (current === null || current === undefined) {
-        return;
-      }
-      const change = priceEntry.change;
-      const price10d = priceEntry.price_10d;
-
-      const qty = normaliseNumber(doc.quantity);
-      const cost = normaliseNumber(doc.cost_price);
-
-      const mvNow = current * qty;
-      const mvPrev =
-        change !== null && change !== undefined ? (current - change) * qty : null;
-      const mv10d =
-        price10d !== null && price10d !== undefined ? price10d * qty : null;
-      const purchaseDate = parseDateInput(doc?.purchase_date) ?? parseDateInput(doc?.created_at);
-      const basePrice1y = purchaseDate && purchaseDate > oneYearAgo ? cost : priceEntry?.price_1y;
-      const mv1y =
-        basePrice1y !== null && basePrice1y !== undefined ? normaliseNumber(basePrice1y, 0) * qty : null;
-      const pl = (current - cost) * qty;
-
-      ensureArray(doc.tags).forEach((tagId) => {
-        const name = tagNameMap.get(String(tagId));
-        if (!name) {
-          return;
-        }
-        const bucket =
-          buckets.get(name) ||
-          buckets.set(name, {
-            tag: name,
-            total_quantity: 0,
-            total_market_value: 0,
-            total_unrealized_pl: 0,
-            _mv_prev_base: 0,
-            _mv_prev_now: 0,
-            _mv_10d_base: 0,
-            _mv_10d_now: 0,
-            _mv_1y_base: 0,
-            _mv_1y_now: 0,
-          }).get(name);
-
-        bucket.total_quantity += qty;
-        bucket.total_market_value += mvNow;
-        bucket.total_unrealized_pl += pl;
-
-        if (mvPrev !== null && mvPrev !== 0) {
-          bucket._mv_prev_base += mvPrev;
-          bucket._mv_prev_now += mvNow - mvPrev;
-        }
-        if (mv10d !== null && mv10d !== 0) {
-          bucket._mv_10d_base += mv10d;
-          bucket._mv_10d_now += mvNow - mv10d;
-        }
-        if (mv1y !== null && mv1y !== 0) {
-          bucket._mv_1y_base += mv1y;
-          bucket._mv_1y_now += mvNow - mv1y;
-        }
-      });
-    });
-
-    const output = [];
-    buckets.forEach((bucket) => {
-      const prevDen = bucket._mv_prev_base;
-      const prevNum = bucket._mv_prev_now;
-      const tenDen = bucket._mv_10d_base;
-      const tenNum = bucket._mv_10d_now;
-      const oneDen = bucket._mv_1y_base;
-      const oneNum = bucket._mv_1y_now;
-
-      output.push({
-        tag: bucket.tag,
-        total_quantity: bucket.total_quantity,
-        total_market_value: bucket.total_market_value,
-        total_unrealized_pl: bucket.total_unrealized_pl,
-        intraday_change_pct: prevDen ? (prevNum / prevDen) * 100 : null,
-        change_10d_pct: tenDen ? (tenNum / tenDen) * 100 : null,
-        change_1y_pct: oneDen ? (oneNum / oneDen) * 100 : null,
-      });
-    });
-
-    res.json(output);
-  } catch (error) {
-    next(error);
-  }
+    const docs = await valuedDocuments();
+    const names = [...new Set(docs.flatMap((d) => d.tags))];
+    res.json(names.map((tag) => {
+      const selected = docs.filter((d) => d.tags.includes(tag));
+      const period = (key) => percent(sum(selected.map((d) => d.valuation[key].gain)),
+        sum(selected.map((d) => d.valuation[key].basis)));
+      return { tag, currency: "EUR",
+        total_quantity: sum(selected.flatMap((d) => positionLots(d).filter((l) => !l.is_closed).map((l) => l.quantity))),
+        total_market_value: sum(selected.map((d) => d.valuation.market_value)),
+        total_unrealized_pl: sum(selected.map((d) => d.valuation.unrealized_pl)),
+        intraday_change_pct: period("intraday"), change_10d_pct: period("ten_day"), change_1y_pct: period("one_year") };
+    }));
+  } catch (error) { next(error); }
 });
 
 router.get("/tags/timeseries", async (req, res, next) => {
@@ -1315,7 +1099,7 @@ router.get("/tags/timeseries", async (req, res, next) => {
     const { period = "6mo", interval = "1d" } = req.query;
     const docs = await positions.find().limit(1000).toArray();
 
-    const openPositions = docs.filter((doc) => !asBoolean(doc.is_closed));
+    const openPositions = docs;
     if (!openPositions.length) {
       return res.json({ tags: {}, total: [] });
     }
@@ -1324,7 +1108,7 @@ router.get("/tags/timeseries", async (req, res, next) => {
     const openStockPositions = openPositions.filter((doc) => !doc?.api_url);
 
     const symbols = uniqueUppercaseSymbols(openStockPositions);
-    const historyMap = symbols.length ? await getPriceHistory(symbols, { period, interval }) : {};
+    const historyMap = symbols.length ? await getPriceHistory(symbols, { period, interval: "1d" }) : {};
 
     const apiHistoryMap = {};
     if (openApiPositions.length) {
@@ -1360,68 +1144,38 @@ router.get("/tags/timeseries", async (req, res, next) => {
       : [];
     const tagNameMap = new Map(tagDocs.map((doc) => [String(doc._id), doc.name]));
 
-    const tagSeries = new Map();
-    const totalSeries = new Map();
-
-    openPositions.forEach((doc) => {
-      const sym = String(doc.symbol || "").toUpperCase();
-      const apiKey = doc?._id ? String(doc._id) : null;
-      const history = doc?.api_url && apiKey ? apiHistoryMap[apiKey] ?? [] : historyMap[sym] ?? [];
-      const qty = normaliseNumber(doc.quantity);
-      const cost = normaliseNumber(doc.cost_price);
-      const purchaseDateCutoff =
-        toIsoDateOnly(doc.purchase_date) ?? toIsoDateOnly(doc.created_at);
-
-      if (!history.length || qty === 0) {
-        return;
+    const [fx, prices, apiPrices] = await Promise.all([
+      loadFxRates(), getPrices(symbols), getCustomApiPricesForPositions(openApiPositions),
+    ]);
+    const sources = openPositions.map((doc) => {
+      const history = doc.api_url ? apiHistoryMap[String(doc._id)] ?? [] : historyMap[doc.symbol] ?? [];
+      const quote = doc.api_url ? apiPrices[String(doc._id)] : prices[doc.symbol];
+      return { doc, history, convert: currencyConverter(fx, quote?.currency ?? doc.currency),
+        tags: ensureArray(doc.tags).map((id) => tagNameMap.get(String(id))).filter(Boolean) };
+    });
+    const startDate = toIsoDateOnly(resolveStartDate(String(period)));
+    const today = toIsoDateOnly(new Date());
+    let dates = [...new Set(sources.flatMap((source) => source.history.map((p) => p.date)))].sort()
+      .filter((date) => date >= startDate && date <= today);
+    if (interval === "1wk" || interval === "1mo") {
+      const sampled = new Map();
+      for (const date of dates) {
+        const week = new Date(`${date}T00:00:00Z`);
+        week.setUTCDate(week.getUTCDate() - (week.getUTCDay() + 6) % 7);
+        sampled.set(interval === "1mo" ? date.slice(0, 7) : toIsoDateOnly(week), date);
       }
-
-      const tagNames = ensureArray(doc.tags)
-        .map((id) => tagNameMap.get(String(id)))
-        .filter(Boolean);
-
-      history.forEach((point) => {
-        const { date, close } = point;
-        if (!date || close === null || close === undefined) {
-          return;
-        }
-        if (purchaseDateCutoff && date < purchaseDateCutoff) {
-          return;
-        }
-        const mv = close * qty;
-        const pl = (close - cost) * qty;
-
-        const totalEntry =
-          totalSeries.get(date) ||
-          totalSeries.set(date, { date, market_value: 0, unrealized_pl: 0 }).get(date);
-        totalEntry.market_value += mv;
-        totalEntry.unrealized_pl += pl;
-
-        tagNames.forEach((name) => {
-          const bucket =
-            tagSeries.get(name) ||
-            tagSeries
-              .set(name, new Map())
-              .get(name);
-          const entry =
-            bucket.get(date) || bucket.set(date, { date, market_value: 0, unrealized_pl: 0 }).get(date);
-          entry.market_value += mv;
-          entry.unrealized_pl += pl;
-        });
-      });
-    });
-
-    const tagsOutput = {};
-    tagSeries.forEach((series, name) => {
-      const sorted = Array.from(series.values()).sort((a, b) =>
-        a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
-      );
-      tagsOutput[name] = sorted;
-    });
-
-    const totalOutput = Array.from(totalSeries.values()).sort((a, b) =>
-      a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
-    );
+      dates = [...sampled.values()];
+    }
+    const tagNames = [...new Set(sources.flatMap((source) => source.tags))];
+    const tagsOutput = Object.fromEntries(tagNames.map((tag) => [tag, []]));
+    const totalOutput = [];
+    for (const date of dates) {
+      const rows = sources.map((source) => ({ ...holdingsAt(source.doc, source.history, date, source.convert), tags: source.tags }));
+      const aggregate = (selected) => ({ date, market_value: sum(selected.map((r) => r.market_value)),
+        unrealized_pl: sum(selected.map((r) => r.unrealized_pl)) });
+      totalOutput.push(aggregate(rows));
+      for (const tag of tagNames) tagsOutput[tag].push(aggregate(rows.filter((r) => r.tags.includes(tag))));
+    }
 
     res.json({ tags: tagsOutput, total: totalOutput });
   } catch (error) {

@@ -21,8 +21,8 @@ interface PositionsPnLBarProps {
 interface BarDatum {
   label: string;
   fullName: string | null;
-  pnlValue: number;
-  pnlPercent: number;
+  pnlValue: number | null;
+  pnlPercent: number | null;
   tenDayValue: number | null;
   tenDayPercent: number | null;
   oneYearValue: number | null;
@@ -61,11 +61,6 @@ const loadPeriod = (): PerfPeriod => {
   return "all";
 };
 
-const toFinite = (value: unknown): number | null => {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
-};
-
 const toDate = (value: string | null | undefined): Date | null => {
   if (!value) {
     return null;
@@ -74,60 +69,18 @@ const toDate = (value: string | null | undefined): Date | null => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const impliedBaseFromPercent = (effectivePrice: number, percent: number): number | null => {
-  const denom = 1 + percent / 100;
-  if (!Number.isFinite(denom) || denom === 0) {
-    return null;
-  }
-  const base = effectivePrice / denom;
-  return Number.isFinite(base) && base !== 0 ? base : null;
-};
-
 function buildBarData(rows: PositionRow[]): BarDatum[] {
-  return rows
-    .filter((row) => Number.isFinite(row.pnlValue))
-    .map((row) => {
-      const symbol = row.position.symbol;
-      const longName = row.position.display_name || row.position.long_name || null;
-      const label = symbol || row.position.id || longName || "Position";
-      const qty = row.quantity;
-      const eff = row.effectivePrice;
-
-      const intradayPercent =
-        row.intradayPercent ?? toFinite(row.position.intraday_change_pct);
-      const intradayChange = toFinite(row.position.intraday_change);
-      const intradayValue = row.intradayAbs ?? (intradayChange !== null ? intradayChange * qty : null);
-
-      const tenDayPercent = row.tenDayPercent ?? toFinite(row.position.change_10d_pct);
-      let tenDayBase = toFinite(row.position.price_10d);
-      if ((tenDayBase === null || tenDayBase === 0) && tenDayPercent !== null) {
-        tenDayBase = impliedBaseFromPercent(eff, tenDayPercent);
-      }
-      const tenDayValue = tenDayBase !== null ? (eff - tenDayBase) * qty : null;
-
-      const oneYearPercent = row.oneYearPercent ?? toFinite(row.position.change_1y_pct);
-      let oneYearBase = toFinite(row.position.price_1y);
-      if ((oneYearBase === null || oneYearBase === 0) && oneYearPercent !== null) {
-        oneYearBase = impliedBaseFromPercent(eff, oneYearPercent);
-      }
-      const oneYearValue = oneYearBase !== null ? (eff - oneYearBase) * qty : null;
-
-      return {
-        label,
-        fullName: longName,
-        pnlValue: row.pnlValue,
-        pnlPercent: row.pnlPercent,
-        tenDayValue,
-        tenDayPercent,
-        oneYearValue,
-        oneYearPercent,
-        intradayValue,
-        intradayPercent,
-        currency: row.position.currency,
-        isClosed: row.isClosed,
-      };
-    })
-    .sort((a, b) => a.pnlValue - b.pnlValue);
+  return rows.filter((row) => row.position.valuation?.total_pl !== null).map((row) => {
+    const v = row.position.valuation;
+    return { label: row.position.symbol, fullName: row.position.display_name || row.position.long_name || null,
+      pnlValue: v?.total_pl ?? null,
+      pnlPercent: v?.total_pl != null && v.open_cost != null && v.closed_cost != null && v.open_cost + v.closed_cost > 0
+        ? v.total_pl / (v.open_cost + v.closed_cost) * 100 : null,
+      intradayValue: v?.intraday.gain ?? null, intradayPercent: v?.intraday.percent ?? null,
+      tenDayValue: v?.ten_day.gain ?? null, tenDayPercent: v?.ten_day.percent ?? null,
+      oneYearValue: v?.one_year.gain ?? null, oneYearPercent: v?.one_year.percent ?? null,
+      currency: "EUR", isClosed: row.isClosed };
+  });
 }
 
 export function PositionsPnLBar({ rows, showClosed, onToggleShowClosed }: PositionsPnLBarProps) {
@@ -251,7 +204,7 @@ export function PositionsPnLBar({ rows, showClosed, onToggleShowClosed }: Positi
   return (
     <div className="card">
       <div className="section-header">
-        <h2>Positions Performance</h2>
+        <h2>Lot P/L (EUR)</h2>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <label
             className="checkbox-row"

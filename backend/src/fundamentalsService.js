@@ -35,6 +35,7 @@ function cacheSet(map, key, value) {
 }
 
 function safeNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 }
@@ -77,7 +78,7 @@ function extractTimeseriesPoints(item, type) {
     if (!date || value === null) {
       continue;
     }
-    points.push({ date, value });
+    points.push({ date, value, currency: entry?.currencyCode ?? null });
   }
   points.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   return points;
@@ -148,7 +149,7 @@ function computeCagrPercent(points) {
   if (first === null || last === null || first <= 0 || last <= 0) {
     return null;
   }
-  const years = points.length - 1;
+  const years = (new Date(points[points.length - 1].date) - new Date(points[0].date)) / (365.25 * 86400000);
   if (years <= 0) {
     return null;
   }
@@ -277,6 +278,10 @@ export async function getFundamentalsSnapshot(symbol) {
       const quick = computeLatestQuickRatio(currentAssets, inventory, currentLiabilities);
 
       const snapshot = {
+        symbol: upper,
+        epsCurrency: epsLatestPoint?.currency ?? null,
+        epsShareBasis: null,
+
         revenueGrowthLatestYoYPct:
           revenueGrowthLatest === null || Number.isNaN(revenueGrowthLatest)
             ? null

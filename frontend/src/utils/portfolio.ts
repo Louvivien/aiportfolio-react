@@ -3,14 +3,14 @@ import type { Position } from "../api/types";
 export interface PositionRow {
   position: Position;
   isClosed: boolean;
-  effectivePrice: number;
+  effectivePrice: number | null;
   quantity: number;
-  cost: number;
+  cost: number | null;
   stopPrice: number | null;
-  invested: number;
-  currentValue: number;
-  pnlValue: number;
-  pnlPercent: number;
+  invested: number | null;
+  currentValue: number | null;
+  pnlValue: number | null;
+  pnlPercent: number | null;
   intradayAbs: number | null;
   intradayPercent: number | null;
   tenDayPercent: number | null;
@@ -25,52 +25,33 @@ export interface RangeStats {
 }
 
 export interface PortfolioTotals {
-  totalInvestAll: number;
-  totalInvestClosed: number;
-  totalMarketValueOpen: number;
-  plOpen: number;
-  plOpenPct: number;
-  plVsInvestAll: number;
-  plPctVsInvestAll: number;
-  intradayAbsSum: number;
-  portfolioIntradayPct: number;
-  tenDayAbsolute: number;
-  tenDayPctTotal: number;
-  oneYearAbsolute: number;
-  oneYearPctTotal: number;
-  realizedPlClosed: number;
+  totalInvestAll: number | null;
+  totalInvestClosed: number | null;
+  totalMarketValueOpen: number | null;
+  plOpen: number | null;
+  plOpenPct: number | null;
+  plVsInvestAll: number | null;
+  plPctVsInvestAll: number | null;
+  intradayAbsSum: number | null;
+  portfolioIntradayPct: number | null;
+  tenDayAbsolute: number | null;
+  tenDayPctTotal: number | null;
+  oneYearAbsolute: number | null;
+  oneYearPctTotal: number | null;
+  realizedPlClosed: number | null;
 }
 
-const toNumber = (value: unknown, fallback = 0): number => {
-  if (value === null || value === undefined) {
-    return fallback;
-  }
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
+const finite = (value: unknown): number | null => value === null || value === undefined || value === ""
+  ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+const sum = (values: (number | null | undefined)[]) => values.some((v) => finite(v) === null)
+  ? null : (values as number[]).reduce((a, b) => a + b, 0);
+const pct = (gain: number | null, basis: number | null) => gain === null || basis === null || basis <= 0 ? null : gain / basis * 100;
+const range = (values: (number | null)[]) => {
+  const sorted = values.filter((v): v is number => v !== null && Number.isFinite(v)).sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return { min: sorted[0] ?? 0, max: sorted[sorted.length - 1] ?? 0,
+    median: !sorted.length ? 0 : sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2 };
 };
-
-const toDate = (value: unknown): Date | null => {
-  if (!value) {
-    return null;
-  }
-  const date = value instanceof Date ? value : new Date(String(value));
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const median = (values: number[]): number => {
-  if (!values.length) {
-    return 0;
-  }
-  const sorted = [...values].sort((a, b) => a - b);
-  const midpoint = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 0) {
-    return (sorted[midpoint - 1] + sorted[midpoint]) / 2;
-  }
-  return sorted[midpoint];
-};
-
-const STOP_LOSS_AMOUNT = 100;
-
 export interface PortfolioComputation {
   rows: PositionRow[];
   ranges: RangeStats;
@@ -78,237 +59,57 @@ export interface PortfolioComputation {
 }
 
 export function buildPortfolioView(positions: Position[]): PortfolioComputation {
-  const rows: PositionRow[] = [];
-  const pnlValues: number[] = [];
-  const intradayPercents: number[] = [];
-  const tenDayPercents: number[] = [];
-  const oneYearPercents: number[] = [];
-
-  const now = new Date();
-  const todayIso = now.toISOString().slice(0, 10);
-  const tenDaysAgo = new Date(now);
-  tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
-  const oneYearAgo = new Date(now);
-  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
-  let totalMarketValueOpen = 0;
-  let intradayAbsSum = 0;
-  let totalMarketValueOpen10d = 0;
-  let totalMarketValueOpen1y = 0;
-  let totalInvestOpen = 0;
-  let totalInvestClosed = 0;
-  let realizedPlClosed = 0;
-
-  for (const position of positions) {
-    const isClosed = Boolean(position.is_closed);
-    const closedAt = isClosed ? toDate(position.closing_date ?? position.updated_at ?? null) : null;
-    const closedIso = closedAt ? closedAt.toISOString().slice(0, 10) : null;
-    const intradayEligible = !isClosed || closedIso === todayIso;
-    const tenDayEligible = !isClosed || (closedAt !== null && closedAt >= tenDaysAgo);
-    const oneYearEligible = !isClosed || (closedAt !== null && closedAt >= oneYearAgo);
-    const quantity = toNumber(position.quantity);
-    const cost = toNumber(position.cost_price);
-    const stopPrice = quantity !== 0 ? Math.max(0, cost - STOP_LOSS_AMOUNT / quantity) : null;
-    const invested = quantity * cost;
-
-    const closingPrice = position.closing_price;
-    const currentPrice = toNumber(position.current_price);
-    const effectivePrice =
-      isClosed && closingPrice !== null && closingPrice !== undefined
-        ? toNumber(closingPrice)
-        : currentPrice;
-    const currentValue = quantity * effectivePrice;
-    const pnlValue = currentValue - invested;
-    const pnlPercent = invested ? (pnlValue / invested) * 100 : 0;
-
-    let intradayAbs: number | null = null;
-    let intradayPercent: number | null = null;
-    if (intradayEligible) {
-      const change = position.intraday_change;
-      const changePct = position.intraday_change_pct;
-      if (change !== null && change !== undefined) {
-        const val = toNumber(change, NaN);
-        intradayAbs = Number.isNaN(val) ? null : val * quantity;
-      }
-      if (changePct !== null && changePct !== undefined) {
-        const pct = toNumber(changePct, NaN);
-        intradayPercent = Number.isNaN(pct) ? null : pct;
-        if (intradayPercent !== null) {
-          intradayPercents.push(intradayPercent);
-        }
-      }
-    }
-
-    let tenDayPercent: number | null = null;
-    let price10dValue: number | null = null;
-    if (tenDayEligible) {
-      const rawPrice10d =
-        position.price_10d !== null && position.price_10d !== undefined
-          ? toNumber(position.price_10d, NaN)
-          : NaN;
-      if (!Number.isNaN(rawPrice10d) && rawPrice10d !== 0) {
-        price10dValue = rawPrice10d;
-        tenDayPercent = ((effectivePrice - rawPrice10d) / rawPrice10d) * 100;
-      }
-
-      if (
-        (tenDayPercent === null || Number.isNaN(tenDayPercent)) &&
-        position.change_10d_pct !== null &&
-        position.change_10d_pct !== undefined
-      ) {
-        const pct = toNumber(position.change_10d_pct, NaN);
-        if (!Number.isNaN(pct)) {
-          tenDayPercent = pct;
-          if (price10dValue === null || Number.isNaN(price10dValue) || price10dValue === 0) {
-            const implied = effectivePrice / (1 + pct / 100);
-            if (Number.isFinite(implied) && implied !== 0) {
-              price10dValue = implied;
-            }
-          }
-        }
-      }
-
-      if (tenDayPercent !== null && !Number.isNaN(tenDayPercent)) {
-        tenDayPercents.push(tenDayPercent);
-      } else {
-        tenDayPercent = null;
-      }
-    }
-
-    let oneYearPercent: number | null = null;
-    let price1yValue: number | null = null;
-    if (oneYearEligible) {
-      const rawPrice1y =
-        position.price_1y !== null && position.price_1y !== undefined
-          ? toNumber(position.price_1y, NaN)
-          : NaN;
-      if (!Number.isNaN(rawPrice1y) && rawPrice1y !== 0) {
-        price1yValue = rawPrice1y;
-        oneYearPercent = ((effectivePrice - rawPrice1y) / rawPrice1y) * 100;
-      }
-
-      if (
-        (oneYearPercent === null || Number.isNaN(oneYearPercent)) &&
-        position.change_1y_pct !== null &&
-        position.change_1y_pct !== undefined
-      ) {
-        const pct = toNumber(position.change_1y_pct, NaN);
-        if (!Number.isNaN(pct)) {
-          oneYearPercent = pct;
-          if (price1yValue === null || Number.isNaN(price1yValue) || price1yValue === 0) {
-            const implied = effectivePrice / (1 + pct / 100);
-            if (Number.isFinite(implied) && implied !== 0) {
-              price1yValue = implied;
-            }
-          }
-        }
-      }
-
-      if (oneYearPercent !== null && !Number.isNaN(oneYearPercent)) {
-        oneYearPercents.push(oneYearPercent);
-      } else {
-        oneYearPercent = null;
-      }
-    }
-
-    rows.push({
-      position,
-      isClosed,
-      effectivePrice,
-      quantity,
-      cost,
-      stopPrice,
-      invested,
-      currentValue,
-      pnlValue,
-      pnlPercent,
-      intradayAbs,
-      intradayPercent,
-      tenDayPercent,
-      oneYearPercent,
-    });
-
-    pnlValues.push(pnlValue);
-
-    if (!isClosed) {
-      totalInvestOpen += invested;
-      totalMarketValueOpen += quantity * currentPrice;
-      if (position.intraday_change !== null && position.intraday_change !== undefined) {
-        const change = toNumber(position.intraday_change, NaN);
-        if (!Number.isNaN(change)) {
-          intradayAbsSum += change * quantity;
-        }
-      }
-      if (price10dValue !== null && !Number.isNaN(price10dValue)) {
-        totalMarketValueOpen10d += quantity * price10dValue;
-      }
-      if (price1yValue !== null && !Number.isNaN(price1yValue)) {
-        totalMarketValueOpen1y += quantity * price1yValue;
-      }
-    } else {
-      totalInvestClosed += invested;
-      realizedPlClosed += pnlValue;
-    }
-  }
-
-  const pnlRange = {
-    min: pnlValues.length ? Math.min(...pnlValues) : 0,
-    max: pnlValues.length ? Math.max(...pnlValues) : 0,
-    median: pnlValues.length ? median(pnlValues) : 0,
+  const today = new Date().toISOString().slice(0, 10);
+  const rows: PositionRow[] = positions.map((position) => {
+    const lots = (position.purchase_lots?.length ? position.purchase_lots : [position])
+      .filter((lot) => !lot.purchase_date || lot.purchase_date.slice(0, 10) <= today);
+    const closedByToday = (lot: (typeof lots)[number]) => Boolean(lot.is_closed || position.is_closed) &&
+      (!lot.closing_date || lot.closing_date.slice(0, 10) <= today);
+    const isClosed = lots.length > 0 && lots.every(closedByToday);
+    const selected = isClosed ? lots : lots.filter((lot) => !closedByToday(lot));
+    const quantity = sum(selected.map((lot) => finite(lot.quantity))) ?? 0;
+    const invested = sum(selected.map((lot) => {
+      const cost = finite(lot.cost_price);
+      return cost === null ? null : cost * lot.quantity;
+    }));
+    const cost = invested !== null && quantity > 0 ? invested / quantity : null;
+    const proceeds = sum(selected.map((lot) => {
+      const price = finite(lot.closing_price ?? position.closing_price);
+      return price === null ? null : lot.quantity * price;
+    }));
+    const effectivePrice = isClosed ? (proceeds !== null && quantity > 0 ? proceeds / quantity : null) : finite(position.current_price);
+    const currentValue = effectivePrice === null ? null : effectivePrice * quantity;
+    const pnlValue = currentValue === null || invested === null ? null : currentValue - invested;
+    const native = position.native_valuation;
+    return { position, isClosed, quantity, cost, invested, effectivePrice, currentValue, pnlValue,
+      stopPrice: cost !== null && quantity > 0 ? Math.max(0, cost - 100 / quantity) : null,
+      pnlPercent: pct(pnlValue, invested),
+      intradayAbs: native?.intraday.gain ?? null,
+      intradayPercent: native?.intraday.percent ?? null,
+      tenDayPercent: native?.ten_day.percent ?? null,
+      oneYearPercent: native?.one_year.percent ?? null,
+    };
+  });
+  const metric = (key: 'open_cost' | 'closed_cost' | 'market_value' | 'realized_pl' | 'unrealized_pl' | 'total_pl') =>
+    sum(positions.map((p) => p.valuation?.[key]));
+  const period = (key: 'intraday' | 'ten_day' | 'one_year') => {
+    const gain = sum(positions.map((p) => p.valuation?.[key].gain));
+    return { gain, percent: pct(gain, sum(positions.map((p) => p.valuation?.[key].basis))) };
   };
-
-  const intradayRange = {
-    min: intradayPercents.length ? Math.min(...intradayPercents) : 0,
-    max: intradayPercents.length ? Math.max(...intradayPercents) : 0,
-  };
-
-  const tenDayRange = {
-    min: tenDayPercents.length ? Math.min(...tenDayPercents) : 0,
-    max: tenDayPercents.length ? Math.max(...tenDayPercents) : 0,
-  };
-
-  const oneYearRange = {
-    min: oneYearPercents.length ? Math.min(...oneYearPercents) : 0,
-    max: oneYearPercents.length ? Math.max(...oneYearPercents) : 0,
-  };
-
-  const totalInvestAll = totalInvestOpen;
-  const plOpen = totalMarketValueOpen - totalInvestOpen;
-  const plOpenPct = totalInvestOpen ? (plOpen / totalInvestOpen) * 100 : 0;
-  const plVsInvestAll = plOpen + realizedPlClosed;
-  const plPctVsInvestAll = totalInvestAll ? (plVsInvestAll / totalInvestAll) * 100 : 0;
-  const portfolioIntradayPct = totalMarketValueOpen
-    ? (intradayAbsSum / totalMarketValueOpen) * 100
-    : 0;
-
-  const tenDayAbsolute = totalMarketValueOpen - totalMarketValueOpen10d;
-  const tenDayPctTotal = totalMarketValueOpen10d
-    ? (tenDayAbsolute / totalMarketValueOpen10d) * 100
-    : 0;
-
-  const oneYearAbsolute = totalMarketValueOpen - totalMarketValueOpen1y;
-  const oneYearPctTotal = totalMarketValueOpen1y
-    ? (oneYearAbsolute / totalMarketValueOpen1y) * 100
-    : 0;
-
-  return {
-    rows,
-    ranges: { pnlRange, intradayRange, tenDayRange, oneYearRange },
-    totals: {
-      totalInvestAll,
-      totalInvestClosed,
-      totalMarketValueOpen,
-      plOpen,
-      plOpenPct,
-      plVsInvestAll,
-      plPctVsInvestAll,
-      intradayAbsSum,
-      portfolioIntradayPct,
-      tenDayAbsolute,
-      tenDayPctTotal,
-      oneYearAbsolute,
-      oneYearPctTotal,
-      realizedPlClosed,
-    },
-  };
+  const totalInvestAll = metric('open_cost');
+  const totalInvestClosed = metric('closed_cost');
+  const plOpen = metric('unrealized_pl');
+  const plVsInvestAll = metric('total_pl');
+  const intraday = period('intraday'), ten = period('ten_day'), year = period('one_year');
+  return { rows, ranges: {
+    pnlRange: range(rows.map((r) => r.pnlValue)), intradayRange: range(rows.map((r) => r.intradayPercent)),
+    tenDayRange: range(rows.map((r) => r.tenDayPercent)), oneYearRange: range(rows.map((r) => r.oneYearPercent)),
+  }, totals: {
+    totalInvestAll, totalInvestClosed, totalMarketValueOpen: metric('market_value'),
+    plOpen, plOpenPct: pct(plOpen, totalInvestAll), plVsInvestAll,
+    plPctVsInvestAll: pct(plVsInvestAll, sum([totalInvestAll, totalInvestClosed])),
+    intradayAbsSum: intraday.gain, portfolioIntradayPct: intraday.percent,
+    tenDayAbsolute: ten.gain, tenDayPctTotal: ten.percent,
+    oneYearAbsolute: year.gain, oneYearPctTotal: year.percent, realizedPlClosed: metric('realized_pl'),
+  } };
 }

@@ -14,7 +14,7 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 };
 
 export function formatNumber(value: number | null | undefined, digits = 2): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
     return "—";
   }
   return value.toLocaleString(undefined, {
@@ -27,7 +27,7 @@ export function formatQuantity(
   value: number | null | undefined,
   maxFractionDigits = 4,
 ): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
     return "—";
   }
   const hasFraction = Math.abs(value % 1) > Number.EPSILON;
@@ -42,9 +42,10 @@ export function formatCurrency(
   currency: string | null | undefined,
   digits = 2,
 ): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
     return "—";
   }
+  if (currency === "GBp" || currency === "GBX") return `${formatNumber(value, digits)} p`;
   const upper = (currency || "").toUpperCase();
   const symbol = CURRENCY_SYMBOLS[upper];
   const formatted = formatNumber(value, digits);
@@ -55,7 +56,7 @@ export function formatCurrency(
 }
 
 export function formatSignedPercent(value: number | null | undefined, digits = 2): string {
-  if (value === null || value === undefined || Number.isNaN(value)) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
     return "—";
   }
   return `${value >= 0 ? "+" : ""}${formatNumber(value, digits)}%`;

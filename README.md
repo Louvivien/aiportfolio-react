@@ -117,3 +117,7 @@ Create two Vercel projects—one for the React bundle, one for the API.
 - Update `frontend/vite.config.ts` if you expose the API on a different host/port.
 - The backend relies on Yahoo Finance public endpoints via the [`yahoo-finance2`](https://github.com/gadicc/node-yahoo-finance2) package. Heavy usage may require caching or rate-limit handling.
 - Environment-specific secrets belong in `backend/.env` (ignored from version control) or Vercel project settings. The frontend remains a pure static bundle.
+
+## Financial calculations
+
+See [the calculation methodology and review notes](docs/financial-calculations.md) for currency conversion, lot P/L, period definitions, missing-data handling and validation commands.

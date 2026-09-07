@@ -1,12 +1,12 @@
+import { CALCULATION_VERSION, positionLots, lotContribution, sum } from "./finance.js";
+import { loadFxRates, currencyConverter } from "./fxService.js";
 import { ObjectId } from "mongodb";
 import { getCollections } from "./db.js";
 import { fetchCustomApiDailySeries } from "./customApiService.js";
 import { getPrices, getPriceHistory } from "./priceService.js";
 import {
-  asBoolean,
   ensureArray,
   normaliseNumber,
-  parseDateInput,
   toIsoDateTime,
   toObjectId,
   uniqueUppercaseSymbols,
@@ -95,13 +95,9 @@ function reportError(status, message) {
 }
 
 function safeNumber(value, fallback = null) {
+  if (value === null || value === undefined || value === "") return fallback;
   const num = normaliseNumber(value, NaN);
   return Number.isFinite(num) ? num : fallback;
-}
-
-function isoDate(value) {
-  const date = parseDateInput(value);
-  return date ? date.toISOString().slice(0, 10) : null;
 }
 
 function sortHistory(points) {
@@ -120,81 +116,18 @@ function sortHistory(points) {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function priceOnOrBefore(series, date) {
-  let found = null;
-  for (const point of series) {
-    if (point.date > date) {
-      break;
-    }
-    found = point.close;
-  }
-  return found;
-}
-
-function priceOnOrAfter(series, date) {
-  return series.find((point) => point.date >= date)?.close ?? null;
-}
-
-function startBoundaryPrice(series, periodStart) {
-  return priceOnOrBefore(series, periodStart) ?? priceOnOrAfter(series, periodStart);
-}
-
 function performancePercent(startValue, performanceValue) {
-  return startValue ? (performanceValue / startValue) * 100 : null;
+  return startValue > 0 && performanceValue !== null ? (performanceValue / startValue) * 100 : null;
 }
 
 function buildPerformance(startValue, endValue) {
-  const performanceValue = endValue - startValue;
+  const performanceValue = endValue === null || startValue === null ? null : endValue - startValue;
   return {
     start_value: startValue,
     end_value: endValue,
     performance_value: performanceValue,
     performance_pct: performancePercent(startValue, performanceValue),
   };
-}
-
-function validLotFromPosition(doc) {
-  const quantity = safeNumber(doc?.quantity, null);
-  const costPrice = safeNumber(doc?.cost_price, null);
-  if (quantity === null || quantity <= 0 || costPrice === null) {
-    return [];
-  }
-  return [
-    {
-      id: "lot-1",
-      quantity,
-      cost_price: costPrice,
-      purchase_date: isoDate(doc?.purchase_date) ?? isoDate(doc?.created_at),
-      is_closed: asBoolean(doc?.is_closed),
-      closing_price: safeNumber(doc?.closing_price, null),
-      closing_date: isoDate(doc?.closing_date) ?? isoDate(doc?.updated_at),
-    },
-  ];
-}
-
-function normalizedLots(doc) {
-  const lots = ensureArray(doc?.purchase_lots)
-    .map((lot, index) => {
-      const quantity = safeNumber(lot?.quantity, null);
-      const costPrice = safeNumber(lot?.cost_price, null);
-      if (quantity === null || quantity <= 0 || costPrice === null) {
-        return null;
-      }
-      const isSingleClosedPosition = ensureArray(doc?.purchase_lots).length === 1 && asBoolean(doc?.is_closed);
-      const isClosed = asBoolean(lot?.is_closed) || isSingleClosedPosition;
-      return {
-        id: lot?.id ? String(lot.id) : `lot-${index + 1}`,
-        quantity,
-        cost_price: costPrice,
-        purchase_date: isoDate(lot?.purchase_date) ?? isoDate(doc?.purchase_date) ?? isoDate(doc?.created_at),
-        is_closed: isClosed,
-        closing_price: safeNumber(lot?.closing_price ?? doc?.closing_price, null),
-        closing_date: isoDate(lot?.closing_date) ?? isoDate(doc?.closing_date) ?? isoDate(doc?.updated_at),
-      };
-    })
-    .filter(Boolean);
-
-  return lots.length ? lots : validLotFromPosition(doc);
 }
 
 async function mapWithConcurrency(items, limit, mapper) {
@@ -279,61 +212,13 @@ function positionLabel(doc, priceEntry = null) {
 }
 
 function positionCurrency(doc, priceEntry = null) {
-  return priceEntry?.currency || doc?.currency || (doc?.api_url ? "USD" : "EUR");
-}
-
-function lotContribution(lot, series, bounds) {
-  const notes = [];
-  const purchasedOn = lot.purchase_date;
-  const closedOn = lot.is_closed ? lot.closing_date : null;
-
-  if (purchasedOn && purchasedOn > bounds.periodEnd) {
-    return { skipped: true, reason: "Purchased after report period." };
-  }
-  if (closedOn && closedOn < bounds.periodStart) {
-    return { skipped: true, reason: "Closed before report period." };
-  }
-
-  const startsAtPurchase = Boolean(purchasedOn && purchasedOn >= bounds.periodStart);
-  const startDate = startsAtPurchase ? purchasedOn : bounds.periodStart;
-  const endsAtClosing = Boolean(closedOn && closedOn <= bounds.periodEnd);
-  const endDate = endsAtClosing ? closedOn : bounds.periodEnd;
-  const startPrice = startsAtPurchase ? lot.cost_price : startBoundaryPrice(series, bounds.periodStart);
-  const endPrice = endsAtClosing
-    ? lot.closing_price ?? priceOnOrBefore(series, closedOn)
-    : priceOnOrBefore(series, bounds.periodEnd);
-
-  if (startPrice === null || startPrice === undefined) {
-    notes.push("Missing start price.");
-  }
-  if (endPrice === null || endPrice === undefined) {
-    notes.push("Missing end price.");
-  }
-  if (notes.length) {
-    return { skipped: true, reason: notes.join(" ") };
-  }
-
-  const startValue = lot.quantity * startPrice;
-  const endValue = lot.quantity * endPrice;
-  return {
-    skipped: false,
-    quantity: lot.quantity,
-    start_date: startDate,
-    end_date: endDate,
-    start_price: startPrice,
-    end_price: endPrice,
-    start_value: startValue,
-    end_value: endValue,
-    performance_value: endValue - startValue,
-    start_basis: startsAtPurchase ? "cost" : "market",
-    end_basis: endsAtClosing ? "closing" : "market",
-  };
+  return priceEntry?.currency || doc?.currency || (doc?.api_url ? "USD" : null);
 }
 
 function addAggregate(bucket, row) {
-  bucket.start_value += row.start_value;
-  bucket.end_value += row.end_value;
-  bucket.performance_value += row.performance_value;
+  bucket.start_value = sum([bucket.start_value, row.start_value]);
+  bucket.end_value = sum([bucket.end_value, row.end_value]);
+  bucket.performance_value = sum([bucket.performance_value, row.performance_value]);
 }
 
 function responseDate(value) {
@@ -361,10 +246,10 @@ function listItem(doc) {
     period_start: doc.period_start,
     period_end: doc.period_end,
     generated_at: responseDate(doc.generated_at),
-    performance_value: doc.summary?.performance_value ?? 0,
+    performance_value: doc.summary?.performance_value ?? null,
     performance_pct: doc.summary?.performance_pct ?? null,
-    start_value: doc.summary?.start_value ?? 0,
-    end_value: doc.summary?.end_value ?? 0,
+    start_value: doc.summary?.start_value ?? null,
+    end_value: doc.summary?.end_value ?? null,
     positions_count: doc.summary?.positions_count ?? 0,
     tags_count: doc.summary?.tags_count ?? 0,
   };
@@ -381,16 +266,25 @@ async function buildMonthlyReportDocument(month) {
 
   const { positions } = getCollections();
   const docs = await positions.find().limit(1000).toArray();
-  const [tagNameMap, histories] = await Promise.all([
+  const [tagNameMap, histories, fx] = await Promise.all([
     loadTagNames(docs),
     loadHistories(docs, bounds),
+    loadFxRates(),
   ]);
 
+  return buildMonthlyReportFromData(month, docs, tagNameMap, histories, fx);
+}
+
+export function buildMonthlyReportFromData(month, docs, tagNameMap, histories, fx) {
+  const bounds = monthBounds(month);
+  if (!bounds) throw reportError(400, "Invalid report month. Expected YYYY-MM.");
   const positionBuckets = new Map();
   const tagBuckets = new Map();
   const skipped = [];
   let lotsIncluded = 0;
   let lotsSkipped = 0;
+  let incomplete = false;
+  const incompleteTags = new Set();
 
   for (const doc of docs) {
     const positionId = doc?._id ? String(doc._id) : null;
@@ -403,7 +297,8 @@ async function buildMonthlyReportDocument(month) {
     const tagNames = ensureArray(doc?.tags)
       .map((id) => tagNameMap.get(String(id)))
       .filter(Boolean);
-    const lots = normalizedLots(doc);
+    const lots = positionLots(doc);
+    const convert = currencyConverter(fx, positionCurrency(doc, priceEntry));
     const notes = [];
     let includedForPosition = false;
 
@@ -411,7 +306,8 @@ async function buildMonthlyReportDocument(month) {
       position_id: positionId,
       symbol,
       name: positionLabel(doc, priceEntry),
-      currency: positionCurrency(doc, priceEntry),
+      currency: "EUR",
+      quote_currency: positionCurrency(doc, priceEntry),
       tags: tagNames,
       quantity: 0,
       start_value: 0,
@@ -427,11 +323,20 @@ async function buildMonthlyReportDocument(month) {
       included_lots: 0,
       skipped_lots: 0,
       notes,
+      incomplete: false,
+      lots: [],
     };
 
     for (const lot of lots) {
-      const contribution = lotContribution(lot, series, bounds);
+      const contribution = lotContribution(lot, series, bounds, convert);
+      bucket.lots.push({ lot_id: lot.id ?? null, purchase_date: lot.purchase_date,
+        closing_date: lot.closing_date, ...contribution });
       if (contribution.skipped) {
+        if (contribution.incomplete) {
+          incomplete = true;
+          bucket.incomplete = true;
+          tagNames.forEach((tag) => incompleteTags.add(tag));
+        }
         lotsSkipped += 1;
         bucket.skipped_lots += 1;
         if (contribution.reason) {
@@ -477,9 +382,14 @@ async function buildMonthlyReportDocument(month) {
       continue;
     }
 
+    if (bucket.incomplete) {
+      bucket.start_value = null;
+      bucket.end_value = null;
+      bucket.performance_value = null;
+    }
     bucket.performance_pct = performancePercent(bucket.start_value, bucket.performance_value);
-    bucket.start_price = bucket.quantity ? bucket.start_value / bucket.quantity : null;
-    bucket.end_price = bucket.quantity ? bucket.end_value / bucket.quantity : null;
+    bucket.start_price = bucket.quantity && bucket.start_value !== null ? bucket.start_value / bucket.quantity : null;
+    bucket.end_price = bucket.quantity && bucket.end_value !== null ? bucket.end_value / bucket.quantity : null;
     bucket.notes = Array.from(new Set(notes)).slice(0, 3);
     positionBuckets.set(positionId || symbol || new ObjectId().toString(), bucket);
 
@@ -517,13 +427,16 @@ async function buildMonthlyReportDocument(month) {
       performance_value: row.performance_value,
       performance_pct: performancePercent(row.start_value, row.performance_value),
       positions_count: row._positions.size,
+      ...(incompleteTags.has(row.tag) ? { start_value: null, end_value: null, performance_value: null, performance_pct: null } : {}),
     }))
     .sort((a, b) => Math.abs(b.performance_value) - Math.abs(a.performance_value));
 
-  const totalStart = positionsOutput.reduce((sum, row) => sum + row.start_value, 0);
-  const totalEnd = positionsOutput.reduce((sum, row) => sum + row.end_value, 0);
+  const totalStart = sum(positionsOutput.map((row) => row.start_value));
+  const totalEnd = sum(positionsOutput.map((row) => row.end_value));
   const summary = {
     ...buildPerformance(totalStart, totalEnd),
+    incomplete,
+    ...(incomplete ? { start_value: null, end_value: null, performance_value: null, performance_pct: null } : {}),
     positions_count: positionsOutput.length,
     tags_count: tagsOutput.length,
     positions_total: docs.length,
@@ -534,6 +447,10 @@ async function buildMonthlyReportDocument(month) {
 
   const now = new Date();
   return {
+    calculation_version: CALCULATION_VERSION,
+    currency: "EUR",
+    methodology: "Lot P/L / basis; basis includes purchases during the month; end includes sale proceeds. Excludes unrecorded cash, fees and dividends. Not a time-weighted or money-weighted account return.",
+    stale: false,
     month: bounds.month,
     period_start: bounds.periodStart,
     period_end: bounds.periodEnd,
@@ -556,7 +473,7 @@ export async function generateMonthlyReport(month, { force = false } = {}) {
   const { monthlyReports } = getCollections();
   if (!force) {
     const existing = await monthlyReports.findOne({ month: normalized });
-    if (existing) {
+    if (existing && existing.calculation_version === CALCULATION_VERSION && !existing.stale) {
       return normalizeStoredReport(existing);
     }
   }
@@ -590,7 +507,7 @@ export async function ensureYearToDateMonthlyReports() {
 
   const { monthlyReports } = getCollections();
   const existingDocs = await monthlyReports
-    .find({ month: { $in: months } }, { projection: { month: 1 } })
+    .find({ month: { $in: months }, calculation_version: CALCULATION_VERSION, stale: { $ne: true } }, { projection: { month: 1 } })
     .toArray();
   const existingMonths = new Set(existingDocs.map((doc) => doc.month));
   const missingMonths = months.filter((month) => !existingMonths.has(month));
@@ -617,7 +534,7 @@ export async function listMonthlyReports({
   const docs = await monthlyReports.find().sort({ month: -1 }).limit(limit).toArray();
   return {
     latest_due_month: latestCompletedMonthKey(),
-    reports: docs.map(listItem),
+    reports: await Promise.all(docs.map(async (doc) => listItem(await generateMonthlyReport(doc.month)))),
   };
 }
 
@@ -629,7 +546,7 @@ export async function getMonthlyReport(month) {
   await ensureMonthlyReportIndexes();
   const { monthlyReports } = getCollections();
   const existing = await monthlyReports.findOne({ month: normalized });
-  if (existing) {
+  if (existing && existing.calculation_version === CALCULATION_VERSION && !existing.stale) {
     return normalizeStoredReport(existing);
   }
   return generateMonthlyReport(normalized);

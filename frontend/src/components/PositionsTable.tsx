@@ -161,8 +161,8 @@ const columnMeta: { key: SortableColumn; label: string }[] = [
   { key: "pnlPct", label: "P/L %" },
   { key: "intradayAbs", label: "Intraday" },
   { key: "intradayPct", label: "Intraday %" },
-  { key: "tenDayPct", label: "10D %" },
-  { key: "oneYearPct", label: "1Y %" },
+  { key: "tenDayPct", label: "10D lot P/L %" },
+  { key: "oneYearPct", label: "1Y lot P/L %" },
   { key: "indicator", label: "Indicator" },
   { key: "tags", label: "Tags" },
 ];
@@ -224,6 +224,7 @@ const getPurchaseLotsForRow = (row: PositionRow): PurchaseLot[] => {
     return validLots;
   }
 
+  if (row.cost === null) return [];
   return [
     {
       id: "lot-1",
@@ -810,21 +811,19 @@ export function PositionsTable({
                     purchaseLots.map((lot, index) => {
                       const quantity = Number(lot.quantity);
                       const costPrice = Number(lot.cost_price);
-                      const lotClosed = Boolean(lot.is_closed);
+                      const lotClosed = Boolean(lot.is_closed || position.is_closed);
                       const closingPrice =
                         lot.closing_price === null || lot.closing_price === undefined
                           ? null
                           : Number(lot.closing_price);
                       const effectiveLotPrice =
-                        lotClosed && closingPrice !== null && Number.isFinite(closingPrice)
-                          ? closingPrice
-                          : row.effectivePrice;
+                        lotClosed ? closingPrice : row.effectivePrice;
                       const invested =
                         Number.isFinite(quantity) && Number.isFinite(costPrice)
                           ? quantity * costPrice
                           : null;
                       const currentValue =
-                        Number.isFinite(quantity) && Number.isFinite(effectiveLotPrice)
+                        Number.isFinite(quantity) && effectiveLotPrice !== null && Number.isFinite(effectiveLotPrice)
                           ? quantity * effectiveLotPrice
                           : null;
                       const pnlValue =
@@ -906,7 +905,7 @@ export function PositionsTable({
                           {columns.current && <td>{formatCurrency(effectiveLotPrice, currency)}</td>}
                           {columns.invest && <td>{formatCurrency(invested, currency)}</td>}
                           {columns.value && (
-                            <td>{closed ? "—" : formatCurrency(currentValue, currency)}</td>
+                            <td>{lotClosed ? "—" : formatCurrency(currentValue, currency)}</td>
                           )}
                           {columns.pnl && (
                             <td>
@@ -1028,42 +1027,10 @@ function IndicatorModal({ detail, onClose }: IndicatorModalProps) {
     }
 
     if (step.id === "peRatio") {
-      const epsLatest = snapshot.epsDiluted ?? null;
-      const epsLatestDate = snapshot.epsDilutedAsOfDate ?? null;
-      const epsPositive = snapshot.epsDilutedPositive ?? null;
-      const epsPositiveDate = snapshot.epsDilutedPositiveAsOfDate ?? null;
-
-      const epsUsesPositiveFallback =
-        epsPositive !== null &&
-        epsPositive !== undefined &&
-        epsLatest !== null &&
-        epsLatest !== undefined &&
-        epsLatestDate !== null &&
-        epsPositiveDate !== null &&
-        epsLatestDate !== epsPositiveDate;
-
-      const epsUsed =
-        epsPositive !== null && epsPositive !== undefined ? epsPositive : epsLatest;
-      const epsUsedDate =
-        epsPositive !== null && epsPositive !== undefined ? epsPositiveDate : epsLatestDate;
-
-      if (epsUsed === null || epsUsed === undefined) {
-        return null;
-      }
-
-      const epsLabel = epsUsesPositiveFallback ? "Last positive annual diluted EPS" : "Annual diluted EPS";
-      const price = position.current_price ?? null;
-      if (price === null || price === undefined) {
-        return null;
-      }
-
-      const epsFY = epsUsedDate ? formatFiscalYear(epsUsedDate) : null;
-
       return (
         <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
-          P/E = Price / EPS. Price: {formatCurrency(price, position.currency)}. {epsLabel}:{" "}
-          {formatNumber(epsUsed)}
-          {epsFY ? ` (${epsFY})` : ""}.
+          P/E requires positive EPS in the quote currency on a verified listed-share basis.
+          Unverified currency or depositary ratios are unavailable; manual overrides are retained.
         </div>
       );
     }

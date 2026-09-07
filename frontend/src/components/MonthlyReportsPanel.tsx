@@ -170,10 +170,10 @@ function TagRows({ rows }: { rows: MonthlyReportTagRow[] }) {
         <thead>
           <tr>
             <th>Tag</th>
-            <th>Start value</th>
-            <th>End value</th>
+            <th>Opening value + purchases</th>
+            <th>Closing value + sales</th>
             <th>P/L</th>
-            <th>Return</th>
+            <th>P/L / basis</th>
             <th>Positions</th>
           </tr>
         </thead>
@@ -239,10 +239,10 @@ const monthlyPositionColumns: { key: MonthlyPositionSortColumn; label: string }[
   { key: "quantity", label: "Qty" },
   { key: "start", label: "Start" },
   { key: "end", label: "End" },
-  { key: "startValue", label: "Start value" },
-  { key: "endValue", label: "End value" },
+  { key: "startValue", label: "Opening value + purchases" },
+  { key: "endValue", label: "Closing value + sales" },
   { key: "pnl", label: "P/L" },
-  { key: "return", label: "Return" },
+  { key: "return", label: "P/L / basis" },
 ];
 
 const toTime = (value: string | null | undefined): number | null => {
@@ -489,7 +489,7 @@ function MonthlyPositionChartTooltip({
         P/L: {signedCurrency(datum.performanceValue, datum.currency)}
       </span>
       <span className="muted">
-        Return: {formatSignedPercent(datum.performancePct)}
+        P/L / basis: {formatSignedPercent(datum.performancePct)}
       </span>
     </div>
   );
@@ -759,6 +759,8 @@ export function MonthlyReportsPanel() {
         <div className="loading">Loading report…</div>
       ) : (
         <>
+          <p className="muted">{report.methodology}</p>
+          {summary.incomplete && <p role="status">Report incomplete: some lots lack dates, prices or exchange rates. Totals are unavailable.</p>}
           <div className="monthly-report-meta">
             <span>Generated {formatDate(report.generated_at)}</span>
             <span>{summary.positions_count} positions included</span>
@@ -768,15 +770,15 @@ export function MonthlyReportsPanel() {
           </div>
 
           <div className="monthly-report-metrics">
-            <ReportMetric label="Start value" value={formatCurrency(summary.start_value, "EUR")} />
-            <ReportMetric label="End value" value={formatCurrency(summary.end_value, "EUR")} />
+            <ReportMetric label="Opening value + purchases" value={formatCurrency(summary.start_value, "EUR")} />
+            <ReportMetric label="Closing value + sales" value={formatCurrency(summary.end_value, "EUR")} />
             <ReportMetric
               label="Performance"
               value={signedCurrency(summary.performance_value, "EUR")}
               className={valueClass(summary.performance_value)}
             />
             <ReportMetric
-              label="Return"
+              label="P/L / basis"
               value={formatSignedPercent(summary.performance_pct)}
               className={valueClass(summary.performance_pct)}
             />

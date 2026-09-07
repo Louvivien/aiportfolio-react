@@ -58,16 +58,17 @@ function buildChartDataset(
     return [];
   }
 
-  const seriesMaps: Record<string, Map<string, number>> = {};
+  const seriesMaps: Record<string, Map<string, number | null>> = {};
 
   for (const label of selection) {
     const rawSeries = label === "Total" ? data.total : data.tags[label] || [];
-    const map = new Map<string, number>();
+    const map = new Map<string, number | null>();
     let base: number | null = null;
 
     for (const point of rawSeries) {
       const rawValue = point[metric];
       if (rawValue === null || rawValue === undefined) {
+        map.set(point.date, null);
         continue;
       }
       const value = Number(rawValue);
@@ -188,7 +189,8 @@ export function TimeseriesPanel({
     <div className="overlay" role="dialog" aria-modal="true">
       <div className="modal modal-wide">
         <div className="section-header">
-          <h3>Tag Performance</h3>
+          <h3>Historical Holdings (EUR)</h3>
+          <p className="muted">Values reflect purchases and sales. Rebased values are not investment returns; cash is excluded.</p>
           <button type="button" className="btn ghost" onClick={onClose}>
             Close
           </button>
@@ -307,7 +309,7 @@ export function TimeseriesPanel({
                     stroke={COLORS[index % COLORS.length]}
                     dot={false}
                     strokeWidth={2}
-                    connectNulls
+                    connectNulls={false}
                   />
                 ))}
                 <Line
@@ -317,7 +319,7 @@ export function TimeseriesPanel({
                   strokeDasharray="4 4"
                   dot={false}
                   strokeWidth={2}
-                  connectNulls
+                  connectNulls={false}
                   name="Average"
                 />
               </LineChart>

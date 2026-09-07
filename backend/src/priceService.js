@@ -50,6 +50,7 @@ function cacheSet(map, key, value, ttlMs = null) {
 }
 
 function safeNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 }
@@ -448,10 +449,7 @@ async function fetchYahooHistoryPoints(symbol, { period1, period2, interval }) {
       return [];
     }
     const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
-    const adjClose = result?.indicators?.adjclose?.[0]?.adjclose;
-    const closeSeries = Array.isArray(adjClose)
-      ? adjClose
-      : result?.indicators?.quote?.[0]?.close;
+    const closeSeries = result?.indicators?.quote?.[0]?.close;
     if (!Array.isArray(closeSeries) || !timestamps.length) {
       return [];
     }
@@ -621,7 +619,7 @@ async function fetchYahooFallback(symbol) {
 
 function emptyPriceEntry() {
   return {
-    current: 0,
+    current: null,
     previous_close: null,
     change: null,
     change_pct: null,
@@ -639,7 +637,7 @@ function isEmptyPrice(entry) {
     return true;
   }
   return (
-    entry.current === 0 &&
+    entry.current === null &&
     entry.previous_close === null &&
     entry.change === null &&
     entry.change_pct === null &&
@@ -673,7 +671,7 @@ async function resolveAndFetchPrice(symbol) {
       const variationMatch = html.match(/data-ist-variation[^>]*>([^<]+)</i);
       const currencyMatch = html.match(/c-faceplate__price-currency[^>]*>\\s*([A-Z]{3})\\s*</i);
 
-      const current = normaliseNumericString(priceMatch?.[1]) ?? 0;
+      const current = normaliseNumericString(priceMatch?.[1]);
       const variationStr = variationMatch?.[1]?.trim() || null;
 
       // Parse variation percentage (e.g., "-1,55%" or "+2,30%")
@@ -716,7 +714,7 @@ async function resolveAndFetchPrice(symbol) {
           const closes = histResult.indicators?.quote?.[0]?.close?.filter((c) => c !== null) || [];
           if (closes.length > 0) {
             price10d = extractPrice10dFromCloses(closes);
-            price1y = closes.length > 0 ? closes[0] : null; // Use oldest available as approximation
+            price1y = null; // One month of history cannot establish a one-year price.
           }
         }
       } catch {
@@ -754,14 +752,14 @@ async function resolveAndFetchPrice(symbol) {
   if (cachedResolution?.provider === "yahoo") {
     const yahoo = await fetchYahooFallback(cachedResolution.id || upper);
     if (yahoo) {
-      return { ...yahoo, current: yahoo.current ?? 0 };
+      return { ...yahoo, current: yahoo.current };
     }
   }
 
   const yahoo = await fetchYahooFallback(upper);
   if (yahoo) {
     cacheSet(resolutionCache, upper, { provider: "yahoo", id: upper });
-    return { ...yahoo, current: yahoo.current ?? 0 };
+    return { ...yahoo, current: yahoo.current };
   }
 
   if (cachedResolution?.provider === "boursorama") {
@@ -790,7 +788,7 @@ async function resolveAndFetchPrice(symbol) {
             : null;
         return {
           ...quote,
-          current: current ?? 0,
+          current,
           price_10d: price10d,
           change_10d_pct: change10dPct,
           price_1y: price1y,
@@ -821,7 +819,7 @@ async function resolveAndFetchPrice(symbol) {
       const closes = history.map((p) => p.close);
       const price10d = extractPrice10dFromCloses(closes);
       const price1y = extractPrice1yFromCloses(closes);
-      const current = safeNumber(quote.current) ?? 0;
+      const current = safeNumber(quote.current);
       const change10dPct =
         current !== null && price10d !== null && price10d !== 0
           ? ((current / price10d) - 1) * 100
@@ -853,7 +851,7 @@ async function resolveAndFetchPrice(symbol) {
       if (points.length) {
         cacheSet(resolutionCache, upper, { provider: "stooq", id: stooq });
         const closes = points.map((p) => p.close);
-        const current = closes.length ? closes[closes.length - 1] : 0;
+        const current = closes.length ? closes[closes.length - 1] : null;
         const previous = closes.length >= 2 ? closes[closes.length - 2] : null;
         const price10d = extractPrice10dFromCloses(closes);
         const price1y = extractPrice1yFromCloses(closes);

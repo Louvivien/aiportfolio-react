@@ -27,6 +27,7 @@ function cacheSet(map, key, value) {
 }
 
 function safeNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 }

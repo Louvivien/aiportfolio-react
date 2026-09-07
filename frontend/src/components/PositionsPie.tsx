@@ -34,17 +34,17 @@ const MIN_LABEL_PERCENT = 0.04;
 
 function buildPieData(rows: PositionRow[]): PieDatum[] {
   return rows
-    .filter((row) => !row.isClosed)
+    .filter((row) => !row.isClosed && row.position.valuation?.market_value !== null)
     .map((row) => {
       const symbol = row.position.symbol || null;
       const companyName = row.position.display_name || row.position.long_name || null;
       const label = companyName || symbol || row.position.id || "Position";
-      const value = Math.abs(row.isClosed ? row.invested : row.currentValue);
+      const value = Math.abs(row.position.valuation?.market_value ?? 0);
       return {
         label,
         symbol,
         value: Number.isFinite(value) ? value : 0,
-        currency: row.position.currency,
+        currency: "EUR",
       };
     })
     .filter((entry) => entry.value > 0)
@@ -91,7 +91,7 @@ export default function PositionsPie({ rows }: PositionsPieProps) {
       <text
         x={x}
         y={y}
-        textAnchor={textAnchor || "middle"}
+        textAnchor={textAnchor === "start" || textAnchor === "end" ? textAnchor : "middle"}
         dominantBaseline={dominantBaseline || "central"}
         fontSize={12}
         fontWeight={600}
@@ -160,7 +160,7 @@ export default function PositionsPie({ rows }: PositionsPieProps) {
             ))}
           </div>
           <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
-            Share of portfolio value by position (total {formatCurrency(totalValue, currencyHint)}).
+            Share of positions with available EUR valuations (total {formatCurrency(totalValue, currencyHint)}).
           </p>
         </>
       )}

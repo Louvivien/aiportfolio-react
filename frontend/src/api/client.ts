@@ -42,10 +42,10 @@ const normalizeDateValue = (value: unknown): string | null => {
 const normalizePosition = (raw: Position): Position => {
   const id = raw.id ?? raw._id ?? raw.symbol;
   const tags = Array.isArray(raw.tags) ? raw.tags : [];
-  const purchase = normalizeDateValue(raw.purchase_date) ?? normalizeDateValue(raw.created_at);
+  const purchase = normalizeDateValue(raw.purchase_date);
   const purchaseLots = Array.isArray(raw.purchase_lots)
     ? raw.purchase_lots
-        .map((lot, index) => {
+        .map((lot, index): PurchaseLot | null => {
           const quantity = Number(lot.quantity);
           const costPrice = Number(lot.cost_price);
           if (!Number.isFinite(quantity) || !Number.isFinite(costPrice)) {

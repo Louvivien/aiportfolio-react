@@ -1,9 +1,30 @@
+export interface PeriodPerformance {
+  basis: number | null;
+  gain: number | null;
+  percent: number | null;
+}
+export interface PositionValuation {
+  currency: string;
+  open_cost: number | null;
+  closed_cost: number | null;
+  market_value: number | null;
+  realized_pl: number | null;
+  unrealized_pl: number | null;
+  total_pl: number | null;
+  intraday: PeriodPerformance;
+  ten_day: PeriodPerformance;
+  one_year: PeriodPerformance;
+  fx?: { rate: number; date: string; source: string } | null;
+}
+
 export interface Tag {
   id: string;
   name: string;
 }
 
 export interface FundamentalsSnapshot {
+  epsCurrency?: string | null;
+  epsShareBasis?: string | null;
   revenueGrowthLatestYoYPct?: number | null;
   revenueGrowthLatestYoYAsOfDate?: string | null;
   revenueLatest?: number | null;
@@ -36,6 +57,8 @@ export interface PurchaseLot {
 }
 
 export interface Position {
+  valuation?: PositionValuation;
+  native_valuation?: PositionValuation;
   id?: string;
   _id?: string;
   symbol: string;
@@ -74,15 +97,15 @@ export interface Position {
 }
 
 export interface PortfolioSummary {
-  total_market_value: number;
-  total_unrealized_pl: number;
+  total_market_value: number | null;
+  total_unrealized_pl: number | null;
 }
 
 export interface TagSummaryRow {
   tag: string;
   total_quantity: number;
-  total_market_value: number;
-  total_unrealized_pl: number;
+  total_market_value: number | null;
+  total_unrealized_pl: number | null;
   intraday_change_pct: number | null;
   change_10d_pct: number | null;
   change_1y_pct: number | null;
@@ -90,8 +113,8 @@ export interface TagSummaryRow {
 
 export interface TimeseriesPoint {
   date: string;
-  market_value: number;
-  unrealized_pl: number;
+  market_value: number | null;
+  unrealized_pl: number | null;
 }
 
 export interface TagTimeseriesResponse {
@@ -100,9 +123,10 @@ export interface TagTimeseriesResponse {
 }
 
 export interface MonthlyReportSummary {
-  start_value: number;
-  end_value: number;
-  performance_value: number;
+  incomplete?: boolean;
+  start_value: number | null;
+  end_value: number | null;
+  performance_value: number | null;
   performance_pct: number | null;
   positions_count: number;
   tags_count: number;
@@ -114,9 +138,9 @@ export interface MonthlyReportSummary {
 
 export interface MonthlyReportTagRow {
   tag: string;
-  start_value: number;
-  end_value: number;
-  performance_value: number;
+  start_value: number | null;
+  end_value: number | null;
+  performance_value: number | null;
   performance_pct: number | null;
   positions_count: number;
 }
@@ -128,9 +152,9 @@ export interface MonthlyReportPositionRow {
   currency?: string | null;
   tags: string[];
   quantity: number;
-  start_value: number;
-  end_value: number;
-  performance_value: number;
+  start_value: number | null;
+  end_value: number | null;
+  performance_value: number | null;
   performance_pct: number | null;
   start_date: string | null;
   end_date: string | null;
@@ -151,6 +175,8 @@ export interface MonthlyReportSkippedPosition {
 }
 
 export interface MonthlyPerformanceReport {
+  methodology?: string;
+  currency?: string;
   id?: string;
   _id?: string;
   month: string;
@@ -171,10 +197,10 @@ export interface MonthlyReportListItem {
   period_start: string;
   period_end: string;
   generated_at: string;
-  performance_value: number;
+  performance_value: number | null;
   performance_pct: number | null;
-  start_value: number;
-  end_value: number;
+  start_value: number | null;
+  end_value: number | null;
   positions_count: number;
   tags_count: number;
 }
