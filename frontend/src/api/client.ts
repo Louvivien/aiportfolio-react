@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { SaleRequest, SalePreview } from "./sales";
 import type {
   CreatePositionPayload,
   ForumPostsResponse,
@@ -129,6 +130,18 @@ export function createPosition(payload: CreatePositionPayload): Promise<Position
 
 export function updatePosition(id: string, payload: UpdatePositionPayload): Promise<Position> {
   return unwrap(client.put<Position>(`/positions/${id}`, payload)).then(normalizePosition);
+}
+
+export function sellPosition(id: string, payload: SaleRequest): Promise<{ ok: boolean; sale_id: string }> {
+  return unwrap(client.post<{ ok: boolean; sale_id: string }>(`/positions/${id}/sales`, payload));
+}
+
+export async function previewPositionSale(id: string, payload: SaleRequest): Promise<SalePreview> {
+  try { return await unwrap(client.post<SalePreview>(`/positions/${id}/sales/preview`, payload)); }
+  catch (error) {
+    const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null;
+    throw new Error(typeof detail === 'string' ? detail : 'L’aperçu est indisponible. Réessaie dans un instant.');
+  }
 }
 
 export function deletePosition(id: string): Promise<{ ok: boolean }> {

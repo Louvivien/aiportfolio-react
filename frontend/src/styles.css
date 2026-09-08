@@ -417,6 +417,28 @@ button {
   overflow: auto;
 }
 
+.sale-modal {
+  width: min(600px, 100%);
+  max-height: 94vh;
+  overflow: auto;
+}
+
+.sale-fields {
+  border: 0;
+  padding: 0;
+  margin: 20px 0;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sale-fields label:not(:first-child) { margin-top: 8px; }
+.sale-fields input, .sale-fields select { width: 100%; min-width: 0; box-sizing: border-box; }
+.sale-preview { padding: 16px; border-radius: 12px; background: #f3f6fa; margin-bottom: 20px; }
+.sale-preview p { margin: 8px 0; }
+.sale-preview ul { margin-bottom: 0; padding-left: 20px; }
+.sale-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+
 .modal-wide {
   width: min(96vw, 1280px);
   max-height: 94vh;

@@ -1,5 +1,6 @@
 import { loadFxRates, currencyConverter } from "../fxService.js";
 import { addValuation } from "../valuationService.js";
+import { recordSale, previewSale } from "../saleService.js";
 import { positionLots, safePeRatio, sum, percent, holdingsAt } from "../finance.js";
 import { Router } from "express";
 import { ObjectId } from "mongodb";
@@ -788,6 +789,22 @@ router.get("/:id/forum/posts", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+router.post("/:id/sales", async (req, res, next) => {
+  try {
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ detail: "Invalid position id" });
+    res.json(await recordSale(getCollections(), id, req.body || {}));
+  } catch (error) { next(error); }
+});
+
+router.post("/:id/sales/preview", async (req, res, next) => {
+  try {
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ detail: "Invalid position id" });
+    res.json(await previewSale(getCollections(), id, req.body || {}));
+  } catch (error) { next(error); }
 });
 
 router.put("/:id", async (req, res, next) => {

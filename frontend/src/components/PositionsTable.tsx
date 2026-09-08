@@ -97,6 +97,7 @@ interface PositionsTableProps {
   showClosed: boolean;
   onToggleShowClosed: (value: boolean) => void;
   onEdit: (position: Position) => void;
+  onSell: (position: Position) => void;
   onDelete: (position: Position) => void;
   onToggleStopSet: (position: Position, value: boolean) => void | Promise<void>;
   onUpdatePurchaseLots: (position: Position, lots: PurchaseLot[]) => void | Promise<void>;
@@ -251,6 +252,7 @@ export function PositionsTable({
   showClosed,
   onToggleShowClosed,
   onEdit,
+  onSell,
   onDelete,
   onToggleStopSet,
   onUpdatePurchaseLots,
@@ -783,6 +785,11 @@ export function PositionsTable({
                     {columns.actions && (
                       <td>
                         <div style={{ display: "flex", gap: 8 }}>
+                          {!closed && row.quantity > 0 && <button
+                            type="button" className="btn secondary"
+                            onClick={() => onSell(position)} disabled={mutating}
+                            aria-label={`Vendre ${position.symbol}`}
+                          >Vendre</button>}
                           <button
                             type="button"
                             className="icon-button"

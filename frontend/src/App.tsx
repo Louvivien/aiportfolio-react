@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AddPositionForm from "./components/AddPositionForm";
 import EditPositionModal from "./components/EditPositionModal";
+import SellPositionModal from "./components/SellPositionModal";
+import type { SaleRequest } from "./api/sales";
 import ExportPanel from "./components/ExportPanel";
 import PositionsTable, { SortConfig, SortableColumn } from "./components/PositionsTable";
 import TagSummary from "./components/TagSummary";
@@ -18,6 +20,7 @@ import {
   fetchTagTimeseries,
   fetchTags,
   updatePosition,
+  sellPosition,
 } from "./api/client";
 import type {
   CreatePositionPayload,
@@ -179,6 +182,8 @@ function App() {
   const [showClosed, setShowClosed] = useState(() => loadShowClosed());
 
   const [editing, setEditing] = useState<Position | null>(null);
+  const [selling, setSelling] = useState<Position | null>(null);
+  const [reportVersion, setReportVersion] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [timeseriesOpen, setTimeseriesOpen] = useState(false);
@@ -296,6 +301,21 @@ function App() {
     },
     [reloadData],
   );
+
+  const handleSale = useCallback(async (id: string, sale: SaleRequest) => {
+    setMutating(true);
+    setMutationError(null);
+    setMutationSuccess(null);
+    try {
+      await sellPosition(id, sale);
+      setReportVersion((version) => version + 1);
+      await reloadData();
+      timeseriesCache.current.clear();
+      setMutationSuccess(`Vente enregistrée : ${sale.quantity} action(s).`);
+    } catch (err) {
+      throw new Error(extractErrorMessage(err));
+    } finally { setMutating(false); }
+  }, [reloadData]);
 
   const handleDelete = useCallback(
     async (position: Position) => {
@@ -518,6 +538,7 @@ function App() {
           showClosed={showClosed}
           onToggleShowClosed={setShowClosed}
           onEdit={handleEdit}
+          onSell={(position) => { setSelling(position); setMutationError(null); setMutationSuccess(null); }}
           onDelete={handleDelete}
           onToggleStopSet={handleToggleStopSet}
           onUpdatePurchaseLots={handleUpdatePurchaseLots}
@@ -548,7 +569,7 @@ function App() {
         totals={portfolioTotals.totals}
       />
 
-      <MonthlyReportsPanel />
+      <MonthlyReportsPanel key={reportVersion} />
 
       {editing && (
         <EditPositionModal
@@ -559,6 +580,8 @@ function App() {
           tagSuggestions={tagSuggestions}
         />
       )}
+
+      {selling && <SellPositionModal position={selling} onClose={() => setSelling(null)} onSubmit={handleSale} loading={mutating} />}
 
       <TimeseriesPanel
         open={timeseriesOpen}

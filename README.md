@@ -49,6 +49,8 @@ The API exposes the same contract as the original FastAPI service:
 - `GET /api/positions`
 - `POST /api/positions`
 - `PUT /api/positions/:id`
+- `POST /api/positions/:id/sales/preview` — preview sale allocation without changing holdings
+- `POST /api/positions/:id/sales` — record a sale, automatically splitting purchases when necessary
 - `DELETE /api/positions/:id`
 - `GET /api/positions/summary`
 - `GET /api/positions/summary/debug`
