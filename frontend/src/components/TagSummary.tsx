@@ -61,6 +61,11 @@ export function TagSummary({
   totalMarketValueOpen,
 }: TagSummaryProps) {
   const rows = visibleTagSummaries(allRows);
+  const partial = (row: TagSummaryRow, key: keyof NonNullable<TagSummaryRow['coverage']>) => {
+    const coverage = row.coverage?.[key];
+    return coverage && coverage.missing_lots > 0 && coverage.value !== null
+      ? <small style={{ marginLeft: 6 }} title={`Calcul sur les valeurs disponibles.\n${coverage.issues.join('\n')}`}>Partiel</small> : null;
+  };
   const [columns, setColumns] = useState<TagSummaryColumns>(() => loadColumns());
 
   useEffect(() => {
@@ -247,7 +252,7 @@ export function TagSummary({
                         </button>
                       </td>
                       {columns.marketValue && (
-                        <td>{formatCurrency(row.total_market_value, "EUR")}</td>
+                        <td>{formatCurrency(row.total_market_value, "EUR")}{partial(row, 'market_value')}</td>
                       )}
                       {columns.allocation && (
                         <td>
@@ -261,7 +266,7 @@ export function TagSummary({
                         </td>
                       )}
                       {columns.unrealizedPl && (
-                        <td>{formatCurrency(row.total_unrealized_pl, "EUR")}</td>
+                        <td>{formatCurrency(row.total_unrealized_pl, "EUR")}{partial(row, 'unrealized_pl')}</td>
                       )}
                       {columns.intradayPct && (
                         <td>
@@ -272,6 +277,7 @@ export function TagSummary({
                               {formatNumber(row.intraday_change_pct)}%
                             </span>
                           )}
+                          {partial(row, 'intraday')}
                         </td>
                       )}
                       {columns.tenDayPct && (
@@ -281,6 +287,7 @@ export function TagSummary({
                           ) : (
                             <span style={tenDayStyle}>{formatNumber(row.change_10d_pct)}%</span>
                           )}
+                          {partial(row, 'ten_day')}
                         </td>
                       )}
                       {columns.oneYearPct && (
@@ -290,6 +297,7 @@ export function TagSummary({
                           ) : (
                             <span style={oneYearStyle}>{formatNumber(row.change_1y_pct)}%</span>
                           )}
+                          {partial(row, 'one_year')}
                         </td>
                       )}
                       {columns.chart && (

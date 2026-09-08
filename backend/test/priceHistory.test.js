@@ -20,3 +20,11 @@ test('failed and empty fallback providers retain the best available history', as
   assert.equal(result.provider, 'partial');
   assert.deepEqual(result.points, complete.slice(1));
 });
+
+test('a missing weekday at a report boundary triggers another provider rather than using an older close', async () => {
+  const result = await selectHistoryForDates([
+    { provider: 'gap', load: async () => [{ date: '2026-08-28', close: 100 }] },
+    { provider: 'complete', load: async () => [{ date: '2026-08-31', close: 110 }] },
+  ], ['2026-08-31']);
+  assert.equal(result.provider, 'complete');
+});

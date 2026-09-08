@@ -46,6 +46,17 @@ test('first tag table renders only tags with a positive known holding value', ()
   assert.doesNotMatch(html, /ClosedOnly|MissingValue/);
 });
 
+test('tag summary displays the available return and labels the excluded US quote', () => {
+  const row = { tag: 'AI', total_market_value: 11020, total_unrealized_pl: 220,
+    intraday_change_pct: 2, change_10d_pct: null, change_1y_pct: null,
+    coverage: { intraday: { value: 20, basis: 1000, included_lots: 1, missing_lots: 1, issues: ['NVDA: Current quote is not dated today.'] } } };
+  const html = renderToStaticMarkup(React.createElement(TagSummary, { rows: [row], activeFilter: null,
+    onFilter() {}, onOpenTimeseries() {}, totalMarketValueOpen: 11020 }));
+  assert.match(html, /2\.00%/);
+  assert.match(html, /Partiel/);
+  assert.match(html, /NVDA/);
+});
+
 const apiStub = `data:text/javascript;base64,${Buffer.from(`
 export const fetchMonthlyReports = (...args) => globalThis.__monthlyApi.list(...args);
 export const fetchMonthlyReport = (...args) => globalThis.__monthlyApi.get(...args);

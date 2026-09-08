@@ -59,6 +59,7 @@ const TAG_COLUMNS = [
   "intraday_change_pct",
   "change_10d_pct",
   "change_1y_pct",
+  "coverage",
 ];
 
 export function ExportPanel({ positions, rawPositions, tagSummary, totals }: ExportPanelProps) {
@@ -123,6 +124,7 @@ export function ExportPanel({ positions, rawPositions, tagSummary, totals }: Exp
       intraday_change_pct: row.intraday_change_pct,
       change_10d_pct: row.change_10d_pct,
       change_1y_pct: row.change_1y_pct,
+      coverage: JSON.stringify(row.coverage ?? {}),
     }));
     downloadCsv(`aiportfolio_tag_summary_${stamp}.csv`, rows, TAG_COLUMNS);
   }, [tagSummary, totals.totalMarketValueOpen]);

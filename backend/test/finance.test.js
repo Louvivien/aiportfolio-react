@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { number, positionLots, valuePosition, lotContribution, periodPerformance, holdingsAt, safePeRatio, sum } from '../src/finance.js';
+import { number, positionLots, valuePosition, lotContribution, periodPerformance, holdingsAt, safePeRatio, sum, priceAt } from '../src/finance.js';
 import { parseEcbRates, exchangeRate, currencyConverter } from '../src/fxService.js';
 const identity = (value) => value;
 const june = { periodStart: '2026-06-01', periodEnd: '2026-06-30' };
@@ -12,6 +12,29 @@ test('missing numeric data stays missing, including sum propagation', () => {
   for (const input of [null, undefined, '', 'abc', Infinity]) assert.equal(number(input), null);
   assert.equal(number(0), 0);
   assert.equal(sum([100, null]), null);
+});
+
+test('historical references allow weekends but never silently skip a missing weekday', () => {
+  const friday = [{ date: '2026-09-04', close: 128.3 }];
+  assert.equal(priceAt(friday, '2026-09-06').close, 128.3);
+  assert.equal(priceAt(friday, '2026-09-07'), null);
+  assert.equal(priceAt([{ date: '2026-09-03', close: 123.5 }], '2026-09-06'), null);
+  assert.equal(priceAt([{ date: '2026-09-08', close: 140 }], '2026-09-07'), null);
+  const doc = { current_price: 140, quantity: 1, cost_price: 90, purchase_date: '2025-01-01' };
+  const periods = valuePosition(doc, [{ date: '2026-08-27', close: 100 }, { date: '2025-09-05', close: 80 }], identity, '2026-09-08');
+  assert.equal(periods.ten_day.gain, null); // Target Saturday 29 Aug requires Friday 28 Aug.
+  assert.equal(periods.one_year.gain, null); // Monday 8 Sep 2025 cannot use Friday 5 Sep.
+});
+
+test('a prior-session or undated quote cannot produce today performance, including purchases today', () => {
+  for (const quote_date of ['2026-09-04', '2026-09-09', null]) {
+    for (const purchase_date of ['2026-01-01', '2026-09-08']) {
+      const result = valuePosition({ current_price: 110, previous_close: 100, quote_date,
+        quantity: 1, cost_price: 100, purchase_date }, [], identity, '2026-09-08');
+      assert.equal(result.intraday.gain, null);
+      assert.equal(result.intraday.coverage.missing_lots, 1);
+    }
+  }
 });
 test('ECB USD quote is divided by USD per EUR; weekends use prior reference date', () => {
   const days = parseEcbRates(`<Cube><Cube time='2026-09-04'><Cube currency='USD' rate='1.1622'/><Cube currency='GBP' rate='0.85'/></Cube></Cube>`);

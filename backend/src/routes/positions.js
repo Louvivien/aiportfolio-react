@@ -1,7 +1,8 @@
 import { loadFxRates, currencyConverter } from "../fxService.js";
 import { addValuation } from "../valuationService.js";
+import { buildTagSummary } from "../tagSummaryService.js";
 import { recordSale, previewSale } from "../saleService.js";
-import { positionLots, safePeRatio, sum, percent, holdingsAt } from "../finance.js";
+import { positionLots, safePeRatio, sum, holdingsAt } from "../finance.js";
 import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { getCollections } from "../db.js";
@@ -1098,17 +1099,7 @@ router.get("/summary/debug", async (req, res, next) => {
 router.get("/tags/summary", async (req, res, next) => {
   try {
     const docs = await valuedDocuments();
-    const names = [...new Set(docs.flatMap((d) => d.tags))];
-    res.json(names.map((tag) => {
-      const selected = docs.filter((d) => d.tags.includes(tag));
-      const period = (key) => percent(sum(selected.map((d) => d.valuation[key].gain)),
-        sum(selected.map((d) => d.valuation[key].basis)));
-      return { tag, currency: "EUR",
-        total_quantity: sum(selected.flatMap((d) => positionLots(d).filter((l) => !l.is_closed).map((l) => l.quantity))),
-        total_market_value: sum(selected.map((d) => d.valuation.market_value)),
-        total_unrealized_pl: sum(selected.map((d) => d.valuation.unrealized_pl)),
-        intraday_change_pct: period("intraday"), change_10d_pct: period("ten_day"), change_1y_pct: period("one_year") };
-    }).filter((row) => Number.isFinite(row.total_market_value) && row.total_market_value > 0));
+    res.json(buildTagSummary(docs));
   } catch (error) { next(error); }
 });
 

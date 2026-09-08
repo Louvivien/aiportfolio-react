@@ -121,6 +121,7 @@ export interface PortfolioSummary {
 }
 
 export interface TagSummaryRow {
+  coverage?: Partial<Record<'market_value' | 'unrealized_pl' | 'intraday' | 'ten_day' | 'one_year', ValuationCoverage>>;
   tag: string;
   total_quantity: number;
   total_market_value: number | null;

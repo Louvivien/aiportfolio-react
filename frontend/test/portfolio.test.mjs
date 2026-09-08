@@ -6,7 +6,7 @@ import { valuePosition } from '../../backend/src/finance.js';
 import { currencyConverter } from '../../backend/src/fxService.js';
 const source = await fs.readFile(new URL('../src/utils/portfolio.ts', import.meta.url), 'utf8');
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { buildPortfolioView, visibleTagSummaries } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
+const { buildPortfolioView, visibleTagSummaries, lotIntradayValue } = await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`);
 const valued = (position, convert = (v) => v) => ({ ...position,
   valuation: valuePosition(position, [], convert, '2026-09-07'),
   native_valuation: valuePosition(position, [], (v) => v, '2026-09-07'),
@@ -18,6 +18,20 @@ test('dashboard sums EUR valuations, not native currency prices', () => {
   const view = buildPortfolioView([eur, usd]);
   assert.equal(view.totals.totalMarketValueOpen, 2000);
   assert.equal(view.rows[1].effectivePrice, 116.22);
+});
+
+test('expanded purchase rows reconcile with daily position P/L after purchases and sales today', () => {
+  const position = { current_price: 110, previous_close: 100, quote_date: '2026-09-08', purchase_lots: [
+    { quantity: 1, cost_price: 90, purchase_date: '2026-01-01' },
+    { quantity: 1, cost_price: 108, purchase_date: '2026-09-08' },
+    { quantity: 1, cost_price: 90, purchase_date: '2026-01-01', is_closed: true, closing_price: 105, closing_date: '2026-09-08' },
+    { quantity: 1, cost_price: 90, purchase_date: '2026-01-01', is_closed: true, closing_price: 80, closing_date: '2026-09-07' },
+  ] };
+  const rows = position.purchase_lots.map((lot) => lotIntradayValue(position, lot, '2026-09-08'));
+  assert.deepEqual(rows, [10, 2, 5, null]);
+  assert.equal(rows.reduce((sum, value) => sum + (value ?? 0), 0),
+    valuePosition(position, [], (value) => value, '2026-09-08').intraday.gain);
+  assert.equal(lotIntradayValue({ ...position, quote_date: '2026-09-04' }, position.purchase_lots[0], '2026-09-08'), null);
 });
 test('global P/L ratio includes closed cost basis and realized losses within open positions', () => {
   const position = valued({ symbol: 'TEST', currency: 'EUR', tags: [], current_price: 120, purchase_lots: [
