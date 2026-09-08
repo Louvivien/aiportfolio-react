@@ -52,6 +52,20 @@ const finite = (value: unknown): number | null => value === null || value === un
 const sum = (values: (number | null | undefined)[]) => values.some((v) => finite(v) === null)
   ? null : (values as number[]).reduce((a, b) => a + b, 0);
 const pct = (gain: number | null, basis: number | null) => gain === null || basis === null || basis <= 0 ? null : gain / basis * 100;
+export function lotIntradayValue(position: Position, lot: NonNullable<Position['purchase_lots']>[number], today = new Date().toISOString().slice(0, 10)): number | null {
+  const bought = lot.purchase_date?.slice(0, 10);
+  if (!bought || bought > today) return null;
+  const closed = Boolean(lot.is_closed || position.is_closed);
+  const sold = lot.closing_date?.slice(0, 10) ?? (position.is_closed ? position.closing_date?.slice(0, 10) : null);
+  if (closed && (!sold || sold < today)) return null;
+  const quoteIsCurrent = position.quote_date === undefined || position.quote_date?.slice(0, 10) === today;
+  const start = bought === today ? finite(lot.cost_price) : quoteIsCurrent ? finite(position.previous_close) : null;
+  const end = closed && sold === today ? finite(lot.closing_price ?? (position.is_closed ? position.closing_price : null))
+    : quoteIsCurrent ? finite(position.current_price) : null;
+  const quantity = finite(lot.quantity);
+  return start === null || (bought !== today && start <= 0) || end === null || quantity === null || quantity <= 0
+    ? null : (end - start) * quantity;
+}
 const range = (values: (number | null)[]) => {
   const sorted = values.filter((v): v is number => v !== null && Number.isFinite(v)).sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);

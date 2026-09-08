@@ -1,5 +1,5 @@
 // Pure, lot-based calculations. Amounts stay unrounded until presentation.
-export const CALCULATION_VERSION = 2;
+export const CALCULATION_VERSION = 3;
 export const number = (value) => value === null || value === undefined || value === ''
   ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 export const day = (value) => {
@@ -8,6 +8,13 @@ export const day = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 };
 export const previousDay = (date) => day(new Date(new Date(`${date}T00:00:00Z`).getTime() - 86400000));
+export function referenceDay(date) {
+  let value = day(date);
+  // Weekends are known non-trading days for the listed markets supported here.
+  // An absent weekday may be a holiday OR a data gap: do not silently guess.
+  while (value && [0, 6].includes(new Date(`${value}T00:00:00Z`).getUTCDay())) value = previousDay(value);
+  return value;
+}
 export const sum = (values) => values.some((v) => v === null || !Number.isFinite(v))
   ? null : values.reduce((a, b) => a + b, 0);
 export const difference = (end, start) => end === null || start === null ? null : end - start;
@@ -41,11 +48,12 @@ export function priceAt(series, date) {
       found = { date: d, close };
     }
   }
-  // Do not value a month from a quote months old, or use a future quote.
-  return found && new Date(date) - new Date(found.date) <= 7 * 86400000 ? found : null;
+  // Accept an exact observation or the preceding Friday for a weekend. Missing
+  // weekdays remain unavailable, including holidays without a verified calendar.
+  return found && (found.date === day(date) || found.date === referenceDay(date)) ? found : null;
 }
 
-export function lotContribution(lot, series, bounds, convert = (value) => value, currentPrice = null) {
+export function lotContribution(lot, series, bounds, convert = (value) => value, currentPrice = null, openingPrice = undefined) {
   const bought = lot.purchase_date;
   const sold = lot.is_closed ? lot.closing_date : null;
   const skip = (reason, incomplete = false) => ({ skipped: true, reason, incomplete });
@@ -61,8 +69,10 @@ export function lotContribution(lot, series, bounds, convert = (value) => value,
   const atClosing = sold && sold <= bounds.periodEnd;
   const startDate = atPurchase ? bought : previousDay(bounds.periodStart);
   const endDate = atClosing ? sold : bounds.periodEnd;
-  const startPrice = atPurchase ? lot.cost_price : priceAt(series, startDate)?.close ?? null;
+  const startPrice = atPurchase ? lot.cost_price
+    : openingPrice !== undefined ? openingPrice : priceAt(series, startDate)?.close ?? null;
   const endPrice = atClosing ? lot.closing_price : currentPrice ?? priceAt(series, endDate)?.close ?? null;
+  if (!atPurchase && openingPrice === null) return skip('Missing previous closing quote.', true);
   if (startPrice === null || endPrice === null) return skip('Missing boundary or sale price.', true);
   const start = convert(startPrice * lot.quantity, startDate);
   const end = convert(endPrice * lot.quantity, endDate);
@@ -87,8 +97,8 @@ export function summarizeCoverage(entries) {
     issues: [...new Set(missing.map((entry) => entry.reason || 'Missing price or exchange rate.'))] };
 }
 
-export function periodPerformance(lots, series, bounds, convert, currentPrice) {
-  const results = lots.map((lot) => lotContribution(lot, series, bounds, convert, currentPrice));
+export function periodPerformance(lots, series, bounds, convert, currentPrice, openingPrice = undefined) {
+  const results = lots.map((lot) => lotContribution(lot, series, bounds, convert, currentPrice, openingPrice));
   const coverage = summarizeCoverage(results.filter((r) => !r.skipped || r.incomplete).map((r) => ({
     value: r.skipped ? null : r.performance_value, basis: r.skipped ? null : r.start_value, reason: r.reason,
   })));
@@ -135,11 +145,18 @@ export function valuePosition(doc, series, convert, today = day(new Date())) {
   year.setUTCFullYear(year.getUTCFullYear() - 1);
   year.setUTCDate(year.getUTCDate() + 1);
   const period = (start) => periodPerformance(lots, series, { periodStart: start, periodEnd: today }, convert, current);
+  // Historical series may omit the latest completed session. The seven-day
+  // carry-forward used for historical valuations is not a daily quote reference.
+  const previousClose = number(doc.previous_close);
+  const quoteIsCurrent = doc.quote_date === undefined || day(doc.quote_date) === today;
+  const intraday = periodPerformance(lots, [], { periodStart: today, periodEnd: today }, convert, quoteIsCurrent ? current : null,
+    quoteIsCurrent && previousClose !== null && previousClose > 0 ? previousClose : null);
+  if (!quoteIsCurrent && intraday.coverage.missing_lots) intraday.coverage.issues.unshift('Current quote is missing or is not dated today.');
   return {
     currency: 'EUR', calculation_version: CALCULATION_VERSION, coverage,
     open_cost: openCost, closed_cost: closedCost, market_value: marketValue,
     realized_pl: realized, unrealized_pl: unrealized, total_pl: sum([realized, unrealized]),
-    intraday: period(today), ten_day: period(day(ten)), one_year: period(day(year)),
+    intraday, ten_day: period(day(ten)), one_year: period(day(year)),
   };
 }
 

@@ -1,4 +1,4 @@
-import { priceAt } from "./finance.js";
+import { priceAt, day, previousDay } from "./finance.js";
 import yahooFinance from "yahoo-finance2";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -7,6 +7,7 @@ const PRICE_CACHE_FAILURE_TTL_MS = 10_000;
 const HISTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const RESOLUTION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CONCURRENCY = 4;
+const quoteDay = (value) => day(typeof value === 'number' ? value * 1000 : value);
 
 const YAHOO_CHART_HOSTS = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
 
@@ -70,25 +71,6 @@ function normaliseNumericString(value) {
   }
   const num = Number(cleaned);
   return Number.isFinite(num) ? num : null;
-}
-
-function extractPrice10dFromCloses(closes = []) {
-  const values = closes.filter((value) => Number.isFinite(value));
-  if (!values.length) {
-    return null;
-  }
-  if (values.length >= 11) {
-    return values[values.length - 11];
-  }
-  return values[0];
-}
-
-function extractPrice1yFromCloses(closes = []) {
-  const values = closes.filter((value) => Number.isFinite(value));
-  if (!values.length) {
-    return null;
-  }
-  return values[0];
 }
 
 async function fetchWithTimeout(url, { timeoutMs = DEFAULT_TIMEOUT_MS, ...options } = {}) {
@@ -280,7 +262,7 @@ async function fetchBoursoramaDailyHistory(symbolId, { period1, period2 }) {
   }
   const diffDays = Math.ceil((end.getTime() - start.getTime()) / 86400000);
   const length = Math.max(365, diffDays);
-  const cacheKey = `boursorama:history:${symbolId}:${length}`;
+  const cacheKey = `boursorama:history:${symbolId}:${length}:${day(end)}`;
   const cached = cacheGet(historyCache, cacheKey, HISTORY_CACHE_TTL_MS);
   const raw =
     cached ??
@@ -495,6 +477,7 @@ async function fetchYahooChartApi(symbol) {
 
     return {
       current,
+      quote_date: quoteDay(meta?.regularMarketTime),
       previous_close: previous,
       change,
       change_pct: changePct,
@@ -518,51 +501,14 @@ async function fetchYahooFallback(symbol) {
 
   // Try chart API first (more reliable, less rate-limiting)
   const chartData = await fetchYahooChartApi(upper);
-  if (chartData) {
-    // Still need historical data, try to get it
-    let price10d = null;
-    let price1y = null;
-    try {
-      const end = new Date();
-      const start = new Date();
-      start.setFullYear(end.getFullYear() - 1);
-      const closes = (await fetchYahooHistoryPoints(upper, { period1: start, period2: end, interval: "1d" }))
-        .map((point) => point.close)
-        .filter((value) => value !== null);
-      price10d = extractPrice10dFromCloses(closes);
-      price1y = extractPrice1yFromCloses(closes);
-    } catch {
-      price10d = null;
-      price1y = null;
-    }
-
-    const change10dPct =
-      chartData.current !== null && price10d !== null && price10d !== 0
-        ? ((chartData.current / price10d) - 1) * 100
-        : null;
-    const change1yPct =
-      chartData.current !== null && price1y !== null && price1y !== 0
-        ? ((chartData.current / price1y) - 1) * 100
-        : null;
-
-    return {
-      ...chartData,
-      price_10d: price10d,
-      change_10d_pct: change10dPct,
-      price_1y: price1y,
-      change_1y_pct: change1yPct,
-    };
-  }
+  if (chartData) return chartData;
 
   // Fall back to library method
   try {
     const quote = await yahooFinance.quote(upper);
 
-    const current =
-      safeNumber(quote?.regularMarketPrice) ?? safeNumber(quote?.postMarketPrice);
-    const previous =
-      safeNumber(quote?.regularMarketPreviousClose) ??
-      safeNumber(quote?.postMarketPreviousClose);
+    const current = safeNumber(quote?.regularMarketPrice);
+    const previous = safeNumber(quote?.regularMarketPreviousClose);
     const change =
       current !== null && previous !== null
         ? current - previous
@@ -572,42 +518,14 @@ async function fetchYahooFallback(symbol) {
         ? (change / previous) * 100
         : safeNumber(quote?.regularMarketChangePercent);
 
-    let price10d = null;
-    let price1y = null;
-    try {
-      const end = new Date();
-      const start = new Date();
-      start.setFullYear(end.getFullYear() - 1);
-      const closes = (await fetchYahooHistoryPoints(upper, { period1: start, period2: end, interval: "1d" }))
-        .map((point) => point.close)
-        .filter((value) => value !== null);
-      price10d = extractPrice10dFromCloses(closes);
-      price1y = extractPrice1yFromCloses(closes);
-    } catch {
-      price10d = null;
-      price1y = null;
-    }
-
-    const change10dPct =
-      current !== null && price10d !== null && price10d !== 0
-        ? ((current / price10d) - 1) * 100
-        : null;
-    const change1yPct =
-      current !== null && price1y !== null && price1y !== 0
-        ? ((current / price1y) - 1) * 100
-        : null;
-
     return {
       current,
+      quote_date: quoteDay(quote?.regularMarketTime),
       previous_close: previous,
       change,
       change_pct: changePct,
       long_name: quote?.longName ?? quote?.shortName ?? null,
       currency: quote?.currency ?? null,
-      price_10d: price10d,
-      change_10d_pct: change10dPct,
-      price_1y: price1y,
-      change_1y_pct: change1yPct,
     };
   } catch (error) {
     const message = String(error?.message || "");
@@ -691,9 +609,7 @@ async function resolveAndFetchPrice(symbol) {
         }
       }
 
-      // Fetch historical NAV data from Yahoo Finance for 10-day and 1-year changes
-      let price10d = null;
-      let price1y = null;
+      // Only resolve quote metadata here. Period returns need dated history.
       let longName = longNameFromHtml;
       let resolvedCurrency = currencyMatch?.[1] ?? null;
 
@@ -712,25 +628,8 @@ async function resolveAndFetchPrice(symbol) {
           const meta = histResult?.meta;
           longName = meta?.longName ?? meta?.shortName ?? longName;
           resolvedCurrency = meta?.currency ?? resolvedCurrency;
-          const closes = histResult.indicators?.quote?.[0]?.close?.filter((c) => c !== null) || [];
-          if (closes.length > 0) {
-            price10d = extractPrice10dFromCloses(closes);
-            price1y = null; // One month of history cannot establish a one-year price.
-          }
         }
-      } catch {
-        price10d = null;
-        price1y = null;
-      }
-
-      const change10dPct =
-        current !== null && price10d !== null && price10d !== 0
-          ? ((current / price10d) - 1) * 100
-          : null;
-      const change1yPct =
-        current !== null && price1y !== null && price1y !== 0
-          ? ((current / price1y) - 1) * 100
-          : null;
+      } catch { /* Quote metadata is optional. */ }
 
       return {
         current,
@@ -739,10 +638,6 @@ async function resolveAndFetchPrice(symbol) {
         change_pct: changePct,
         long_name: longName,
         currency: resolvedCurrency ?? "EUR",
-        price_10d: price10d,
-        change_10d_pct: change10dPct,
-        price_1y: price1y,
-        change_1y_pct: change1yPct,
       };
     } catch {
       return emptyPriceEntry();
@@ -767,34 +662,7 @@ async function resolveAndFetchPrice(symbol) {
     try {
       const quote = await fetchBoursoramaQuote(cachedResolution.id);
       if (quote?.current !== null && quote?.current !== undefined) {
-        const history = await fetchBoursoramaDailyHistory(cachedResolution.id, {
-          period1: (() => {
-            const start = new Date();
-            start.setFullYear(start.getFullYear() - 1);
-            return start;
-          })(),
-          period2: new Date(),
-        });
-        const closes = history.map((p) => p.close);
-        const price10d = extractPrice10dFromCloses(closes);
-        const price1y = extractPrice1yFromCloses(closes);
-        const current = safeNumber(quote.current);
-        const change10dPct =
-          current !== null && price10d !== null && price10d !== 0
-            ? ((current / price10d) - 1) * 100
-            : null;
-        const change1yPct =
-          current !== null && price1y !== null && price1y !== 0
-            ? ((current / price1y) - 1) * 100
-            : null;
-        return {
-          ...quote,
-          current,
-          price_10d: price10d,
-          change_10d_pct: change10dPct,
-          price_1y: price1y,
-          change_1y_pct: change1yPct,
-        };
+        return quote;
       }
     } catch {
       // fall through
@@ -809,34 +677,7 @@ async function resolveAndFetchPrice(symbol) {
         continue;
       }
       cacheSet(resolutionCache, upper, { provider: "boursorama", id: candidate });
-      const history = await fetchBoursoramaDailyHistory(candidate, {
-        period1: (() => {
-          const start = new Date();
-          start.setFullYear(start.getFullYear() - 1);
-          return start;
-        })(),
-        period2: new Date(),
-      });
-      const closes = history.map((p) => p.close);
-      const price10d = extractPrice10dFromCloses(closes);
-      const price1y = extractPrice1yFromCloses(closes);
-      const current = safeNumber(quote.current);
-      const change10dPct =
-        current !== null && price10d !== null && price10d !== 0
-          ? ((current / price10d) - 1) * 100
-          : null;
-      const change1yPct =
-        current !== null && price1y !== null && price1y !== 0
-          ? ((current / price1y) - 1) * 100
-          : null;
-      return {
-        ...quote,
-        current,
-        price_10d: price10d,
-        change_10d_pct: change10dPct,
-        price_1y: price1y,
-        change_1y_pct: change1yPct,
-      };
+      return quote;
     } catch {
       // try next candidate
     }
@@ -853,30 +694,18 @@ async function resolveAndFetchPrice(symbol) {
         cacheSet(resolutionCache, upper, { provider: "stooq", id: stooq });
         const closes = points.map((p) => p.close);
         const current = closes.length ? closes[closes.length - 1] : null;
-        const previous = closes.length >= 2 ? closes[closes.length - 2] : null;
-        const price10d = extractPrice10dFromCloses(closes);
-        const price1y = extractPrice1yFromCloses(closes);
+        const quoteDate = points.at(-1).date;
+        const previous = priceAt(points, previousDay(quoteDate))?.close ?? null;
         const change = previous !== null ? current - previous : null;
         const changePct = change !== null && previous ? (change / previous) * 100 : null;
-        const change10dPct =
-          current !== null && price10d !== null && price10d !== 0
-            ? ((current / price10d) - 1) * 100
-            : null;
-        const change1yPct =
-          current !== null && price1y !== null && price1y !== 0
-            ? ((current / price1y) - 1) * 100
-            : null;
         return {
           current,
+          quote_date: quoteDate,
           previous_close: previous,
           change,
           change_pct: changePct,
           long_name: null,
           currency: inferCurrencyFromStooq(stooq),
-          price_10d: price10d,
-          change_10d_pct: change10dPct,
-          price_1y: price1y,
-          change_1y_pct: change1yPct,
         };
       }
     } catch {
@@ -1006,7 +835,7 @@ export async function getPriceHistory(symbols, { period = "6mo", interval = "1d"
   );
 
   const pairs = await mapWithConcurrency(unique, MAX_CONCURRENCY, async (symbol) => {
-    const cacheKey = `history:${symbol}:${period}:${interval}:${requiredDates.join(",")}`;
+    const cacheKey = `history:${symbol}:${period}:${interval}:${day(period2)}:${requiredDates.join(",")}`;
     const cached = cacheGet(historyCache, cacheKey, HISTORY_CACHE_TTL_MS);
     if (cached) {
       return [symbol, cached];

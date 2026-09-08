@@ -22,6 +22,7 @@ import { buildBoursoramaForumUrl } from "../utils/forums";
 import { evaluateStockIndicator } from "../utils/indicator";
 import type { IndicatorStep, StockIndicatorResult } from "../utils/indicator";
 import type { PositionRow } from "../utils/portfolio";
+import { lotIntradayValue } from "../utils/portfolio";
 
 type ForumPreviewState =
   | { status: "loading" }
@@ -848,14 +849,7 @@ export function PositionsTable({
                         pnlValue === null
                           ? undefined
                           : colorFromScale(pnlValue, pnlRange.min, pnlRange.median, pnlRange.max);
-                      const intradayAbs =
-                        row.intradayAbs === null ||
-                        lotClosed ||
-                        position.intraday_change === null ||
-                        position.intraday_change === undefined ||
-                        !Number.isFinite(quantity)
-                          ? null
-                          : Number(position.intraday_change) * quantity;
+                      const intradayAbs = lotIntradayValue(position, lot);
                       const lotKey = lot.id ?? `${rowKey}-lot-${index}`;
 
                       return (

@@ -21,7 +21,7 @@ test('monthly report aggregates eligible lot contributions identically for posit
   assert.equal(report.positions[0].start_basis, 'mixed');
   assert.equal(report.positions[0].lots[1].start_date, '2026-06-30');
   assert.equal(report.summary.lots_skipped, 2);
-  assert.equal(report.calculation_version, 3);
+  assert.equal(report.calculation_version, 4);
 });
 test('missing lot data suppresses position, tag and total values rather than reporting a partial gain', () => {
   const bad = structuredClone(docs); bad[0].purchase_lots[1].purchase_date = null;

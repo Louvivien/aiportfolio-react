@@ -12,7 +12,7 @@ import {
   uniqueUppercaseSymbols,
 } from "./utils.js";
 
-const MONTHLY_REPORT_VERSION = 3;
+const MONTHLY_REPORT_VERSION = 4;
 let indexPromise;
 const generatingReports = new Map();
 

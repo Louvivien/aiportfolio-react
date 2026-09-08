@@ -75,7 +75,7 @@ test('recent lots use execution cost for one-year P/L instead of pre-purchase hi
   close(result.one_year.gain, 10); close(result.one_year.percent, 10 / 110 * 100);
 });
 test('today denominator is opening value; a purchase today begins at purchase price', () => {
-  const doc = { current_price: 110, purchase_lots: [lot({ quantity: 1 }), lot({ quantity: 1, purchase_date: '2026-06-30', cost_price: 108 })] };
+  const doc = { current_price: 110, previous_close: 100, purchase_lots: [lot({ quantity: 1 }), lot({ quantity: 1, purchase_date: '2026-06-30', cost_price: 108 })] };
   const result = valuePosition(doc, [{ date: '2026-06-29', close: 100 }], identity, '2026-06-30');
   close(result.intraday.gain, 12); close(result.intraday.percent, 12 / 208 * 100);
 });
@@ -84,6 +84,43 @@ test('missing current quotes suppress unrealized P/L; a recorded zero sale price
   assert.equal(result.market_value, null); assert.equal(result.unrealized_pl, null);
   const closed = valuePosition({ purchase_lots: [lot({ is_closed: true, closing_price: 0, closing_date: '2026-06-01' })] }, history, identity, '2026-06-30');
   assert.equal(closed.realized_pl, -1350);
+});
+
+test('Soitec intraday uses the quoted previous close despite a missing session in history', () => {
+  const doc = { current_price: 140.65, previous_close: 143.35,
+    purchase_lots: [lot({ quantity: 9, cost_price: 117.2, purchase_date: '2026-07-27' })] };
+  const incompleteHistory = [{ date: '2026-09-04', close: 128.3000030517578 }, { date: '2026-09-08', close: 140.65 }];
+  const result = valuePosition(doc, incompleteHistory, identity, '2026-09-08');
+  close(result.intraday.gain, -24.30);
+  assert.equal(result.intraday.percent.toFixed(2), '-1.88');
+  assert.equal(((140.65 / 128.3 - 1) * 100).toFixed(2), '9.63');
+  assert.equal(result.intraday.coverage.missing_lots, 0);
+});
+
+test('intraday does not substitute historical prices when the quote previous close is unavailable', () => {
+  for (const previous_close of [undefined, null, 0, -100]) {
+    const result = valuePosition({ current_price: 110, previous_close, purchase_lots: [lot()] },
+      [{ date: '2026-06-29', close: 100 }], identity, '2026-06-30');
+    assert.equal(result.intraday.gain, null);
+    assert.equal(result.intraday.percent, null);
+    assert.equal(result.intraday.coverage.missing_lots, 1);
+  }
+  const missingCurrent = valuePosition({ current_price: null, previous_close: 100, purchase_lots: [lot()] },
+    [{ date: '2026-06-30', close: 110 }], identity, '2026-06-30');
+  assert.equal(missingCurrent.intraday.gain, null);
+});
+
+test('intraday reference preserves trade prices, closed lots and dated FX in portfolio totals', () => {
+  const doc = { current_price: 110, previous_close: 100, purchase_lots: [
+    lot({ quantity: 1 }),
+    lot({ quantity: 1, purchase_date: '2026-06-30', cost_price: 108 }),
+    lot({ quantity: 1, is_closed: true, closing_date: '2026-06-30', closing_price: 105 }),
+    lot({ quantity: 1, is_closed: true, closing_date: '2026-06-29', closing_price: 50 }),
+  ] };
+  const convert = (value, date) => value / (date === '2026-06-30' ? 1.1 : 1);
+  const result = valuePosition(doc, [], convert, '2026-06-30');
+  close(result.intraday.basis, 200 + 108 / 1.1);
+  close(result.intraday.gain, (110 + 110 + 105) / 1.1 - (200 + 108 / 1.1));
 });
 test('legacy whole-position closure applies to every remaining lot without double counting', () => {
   const doc = { is_closed: true, closing_date: '2026-06-15', closing_price: 100, purchase_lots: [lot({ quantity: 1 }), lot({ quantity: 1 })] };
@@ -99,7 +136,8 @@ test('history reconstructs past holdings, including since-closed lots and stagge
   const doc = { purchase_lots: [lot({ quantity: 15, is_closed: true, closing_price: 130, closing_date: '2026-07-01' }), lot({ quantity: 5, purchase_date: '2026-06-30', cost_price: 118 })] };
   assert.equal(holdingsAt(doc, history, '2026-06-01', identity).market_value, 1575);
   assert.equal(holdingsAt(doc, history, '2026-06-30', identity).market_value, 2400);
-  assert.equal(holdingsAt(doc, history, '2026-07-01', identity).market_value, 600);
+  assert.equal(holdingsAt(doc, history, '2026-07-01', identity).market_value, null);
+  assert.equal(holdingsAt(doc, [...history, { date: '2026-07-01', close: 120 }], '2026-07-01', identity).market_value, 600);
 });
 test('P/E requires matching currency, symbol, positive latest EPS and verified share basis', () => {
   const snapshot = { symbol: 'HYN', epsDiluted: 10000, epsCurrency: 'KRW', epsShareBasis: 'listed_share' };

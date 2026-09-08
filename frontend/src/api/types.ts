@@ -85,6 +85,8 @@ export interface Position {
   cost_price: number;
   purchase_lots?: PurchaseLot[];
   current_price?: number | null;
+  previous_close?: number | null;
+  quote_date?: string | null;
   long_name?: string | null;
   intraday_change?: number | null;
   intraday_change_pct?: number | null;

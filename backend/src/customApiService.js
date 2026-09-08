@@ -1,3 +1,5 @@
+import { day, previousDay, priceAt } from './finance.js';
+
 const DEFAULT_TIMEOUT_MS = 12_000;
 const SERIES_CACHE_TTL_MS = 15_000;
 
@@ -165,26 +167,6 @@ function normaliseDailySeriesFromJson(json) {
   return Array.from(byDay.values()).sort((a, b) => a.ts - b.ts);
 }
 
-function findPointAtOrBefore(points, targetMs) {
-  if (!points.length) {
-    return null;
-  }
-  let lo = 0;
-  let hi = points.length - 1;
-  let best = null;
-  while (lo <= hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    const point = points[mid];
-    if (point.ts <= targetMs) {
-      best = point;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return best;
-}
-
 const TRADINGAPP_EQUITY_PATH_RE = /^\/api\/strategies\/equity\/([^/]+)\/([^/]+)\/?$/;
 
 function safeDecodeURIComponent(value) {
@@ -324,7 +306,9 @@ export function computePriceEntryFromDailySeries(
     };
   }
 
-  const currentSource = intraday && intraday.length ? intraday : dailyPoints;
+  const currentSource = [...dailyPoints, ...(intraday ?? [])]
+    .filter((point) => Number.isFinite(point.ts) && point.ts <= Date.now() && safeNumber(point.value) !== null)
+    .sort((a, b) => a.ts - b.ts);
   const last = currentSource[currentSource.length - 1];
   const current = safeNumber(last?.value);
   const currentTs = safeNumber(last?.ts);
@@ -337,21 +321,11 @@ export function computePriceEntryFromDailySeries(
   // Calculate intraday only when the latest datapoint is from today (UTC).
   // This prevents reporting stale "intraday" moves when the series hasn't updated for days.
   if (hasCurrentToday) {
-    // Calculate true intraday: find first point of today (UTC) from intraday points when available.
-    if (intraday && intraday.length) {
-      for (const point of intraday) {
-        if (point.ts >= todayStartMs) {
-          previousClose = safeNumber(point.value);
-          break;
-        }
-      }
-      if (previousClose === null && intraday.length >= 2) {
-        previousClose = safeNumber(intraday[intraday.length - 2].value);
-      }
-    } else if (dailyPoints.length >= 2) {
-      // With daily points only, we can approximate the previous close as yesterday's close.
-      previousClose = safeNumber(dailyPoints[dailyPoints.length - 2].value);
-    }
+    // The first observation today is an opening quote, not yesterday's close.
+    const prior = [...dailyPoints, ...(intraday ?? [])]
+      .filter((point) => point.ts < todayStartMs && day(point.ts) === previousDay(day(now)) && safeNumber(point.value) !== null)
+      .sort((a, b) => b.ts - a.ts)[0];
+    previousClose = safeNumber(prior?.value);
   }
 
   const change =
@@ -361,21 +335,15 @@ export function computePriceEntryFromDailySeries(
       ? ((current / previousClose) - 1) * 100
       : null;
 
-  const tenDaysMs = 10 * 24 * 60 * 60 * 1000;
-  const yearMs = 365 * 24 * 60 * 60 * 1000;
-
-  const dailyLast = dailyPoints.length ? dailyPoints[dailyPoints.length - 1] : last;
-  const base10dPoint = dailyPoints.length
-    ? findPointAtOrBefore(dailyPoints, dailyLast.ts - tenDaysMs)
-    : null;
-  const base1yPoint = dailyPoints.length
-    ? findPointAtOrBefore(dailyPoints, dailyLast.ts - yearMs)
-    : null;
-  const price10d = base10dPoint ? safeNumber(base10dPoint.value) : null;
-  const price1y = base1yPoint ? safeNumber(base1yPoint.value) : null;
+  const tenDate = new Date(todayStartMs - 10 * 86400000);
+  const yearDate = new Date(todayStartMs);
+  yearDate.setUTCFullYear(yearDate.getUTCFullYear() - 1);
+  const price10d = priceAt(dailyPoints, day(tenDate))?.close ?? null;
+  const price1y = priceAt(dailyPoints, day(yearDate))?.close ?? null;
 
   return {
     current,
+    quote_date: day(currentTs),
     previous_close: previousClose,
     change,
     change_pct: changePct,
@@ -533,13 +501,10 @@ export async function getCustomApiPricesForPositions(docs) {
         const liveValue = safeNumber(tradingAppEquity);
         if (liveValue !== null) {
           const computedPrevious = safeNumber(priceEntry.previous_close);
-          const snapshotValue = safeNumber(priceEntry.current);
           const previous =
             computedPrevious !== null && computedPrevious !== 0
               ? computedPrevious
-              : snapshotValue !== null && snapshotValue !== 0
-                ? snapshotValue
-                : null;
+              : null;
           const change = previous !== null ? liveValue - previous : null;
           const changePct = previous !== null ? ((liveValue / previous) - 1) * 100 : null;
 

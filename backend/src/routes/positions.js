@@ -310,9 +310,9 @@ async function enrichDocument(doc, priceEntry, tagNames) {
   const change10dPct = end !== null && tenBase !== null ? ((end / tenBase) - 1) * 100 : null;
 
   const intradayAllowed =
-    !isClosed ||
+    toIsoDateOnly(priceEntry?.quote_date) === toIsoDateOnly(new Date()) && (!isClosed ||
     (resolvedClosingDate &&
-      toIsoDateOnly(resolvedClosingDate) === toIsoDateOnly(new Date()));
+      toIsoDateOnly(resolvedClosingDate) === toIsoDateOnly(new Date())));
   const intradayChange = intradayAllowed && end !== null && prev !== null ? end - prev : null;
   const intradayPct =
     intradayAllowed && end !== null && prev !== null ? ((end / prev) - 1) * 100 : null;
@@ -380,6 +380,8 @@ async function enrichDocument(doc, priceEntry, tagNames) {
     fundamentals_snapshot: snapshot,
     closing_date: toIsoDateTime(resolvedClosingDate),
     current_price: parseNullableNumber(priceEntry?.current),
+    quote_date: toIsoDateOnly(priceEntry?.quote_date),
+    previous_close: prev,
     long_name: priceEntry?.long_name ?? null,
     intraday_change: intradayChange,
     intraday_change_pct: intradayPct,
