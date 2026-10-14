@@ -35,3 +35,14 @@ test('missing purchase dates, unknown FX and undated current quotes prevent comp
 test('Paris valuation date changes at Paris midnight, not host midnight', () => {
   assert.equal(parisDate(new Date('2026-10-14T22:30:00Z')), '2026-10-15');
 });
+
+test('saved dated opening prices survive provider outages without freezing quantities', () => {
+  const doc = { symbol: 'URNU.DE', quantity: 3, purchase_date: '2025-01-01' };
+  const saved = [{ symbol: 'URNU.DE', valuation_date: '2025-12-31', price_date: '2025-12-30', close: 20, currency: 'EUR' }];
+  const result = reconstructSecurities([doc], {}, {}, [], '2025-12-31', true, saved);
+  assert.equal(result.complete, true); assert.equal(result.known_value_eur, 60);
+  const wrongDate = reconstructSecurities([doc], {}, {}, [], '2025-12-31', true, [{ ...saved[0], price_date: '2025-12-29' }]);
+  assert.equal(wrongDate.complete, false);
+  const current = reconstructSecurities([doc], {}, {}, [], '2026-10-14', false, saved);
+  assert.equal(current.complete, false); // An old saved price never replaces a live quote.
+});

@@ -2,7 +2,7 @@ import { getDb } from './db.js';
 import { getPrices, getPriceHistory } from './priceService.js';
 import { loadFxRates } from './fxService.js';
 import { positionLots } from './finance.js';
-import { parisDate, reconstructSecurities } from './personalPerformanceValuation.js';
+import { parisDate, reconstructSecurities, savedOpeningQuote } from './personalPerformanceValuation.js';
 import { calculatePersonalPerformance } from './personalPerformance.js';
 
 const EVIDENCE_ID = 'personal-management-2026-identified-flows-v1';
@@ -22,7 +22,7 @@ export async function getPersonalPerformance2026() {
     const symbols = [...new Set(docs.filter((doc) => !doc.api_url).map((doc) => doc.symbol))];
     const openingSymbols = [...new Set(docs.filter((doc) => !doc.api_url && positionLots(doc)
       .some((lot) => lot.purchase_date && lot.purchase_date <= openingDate && (!lot.is_closed || lot.closing_date > openingDate)))
-      .map((doc) => doc.symbol))];
+      .map((doc) => doc.symbol))].filter((symbol) => !savedOpeningQuote(evidence?.opening_quotes, symbol, openingDate));
     const prices = await getPrices(symbols);
     const [histories, fx] = await Promise.all([
       Promise.all([false, true].map((german) => getPriceHistory(openingSymbols.filter((symbol) => symbol.endsWith('.DE') === german), {
@@ -31,7 +31,7 @@ export async function getPersonalPerformance2026() {
       }))).then((groups) => Object.assign({}, ...groups)),
       loadFxRates(),
     ]);
-    const opening = reconstructSecurities(docs, prices, histories, fx, openingDate, true);
+    const opening = reconstructSecurities(docs, prices, histories, fx, openingDate, true, evidence?.opening_quotes);
     const current = reconstructSecurities(docs, prices, {}, fx, asOf);
     // After year-end a live quote is not a year-end valuation.
     if (today > asOf) { current.complete = false; current.missing_symbols = ['valorisation historique de clôture 2026']; }

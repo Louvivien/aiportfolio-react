@@ -11,6 +11,11 @@ Amounts are converted to EUR at their respective valuation dates. The official
 [Xetra 2025 calendar](https://www.xetra.com/resource/blob/4064968/4079a2d5a9fec324905942b807b398ed/data/xetra-trading-calendar-2025.pdf)
 confirms that 31 December was closed: `.DE` securities use the 30 December close.
 This exception does not apply to fund NAVs or arbitrary missing weekdays.
+Previously retrieved opening quotes can be stored in `opening_quotes`, with the
+symbol, valuation date, actual quote date, price, currency and retrieval provenance.
+These are used only for their exact historical boundary; quantities are always
+reconstructed from the latest lots. They never replace a current quote. This
+keeps a temporary provider outage from discarding known opening data.
 
 Account cash is never inferred from trades or replaced with zero. Evidence fields
 `opening_cash_eur`, `current_cash_eur` and `current_cash_date` must be supplied.

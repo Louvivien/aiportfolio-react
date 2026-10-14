@@ -9,7 +9,13 @@ export function parisDate(now = new Date()) {
   return `${value('year')}-${value('month')}-${value('day')}`;
 }
 
-export function reconstructSecurities(docs, prices, histories, fx, date, historical = false) {
+export function savedOpeningQuote(quotes, symbol, date) {
+  const boundary = date === openingDate && symbol.endsWith('.DE') ? '2025-12-30' : date;
+  return (quotes ?? []).find((quote) => quote.symbol === symbol && quote.valuation_date === date && quote.price_date === boundary
+    && Number.isFinite(quote.close) && quote.close >= 0 && typeof quote.currency === 'string' && quote.currency.length > 0);
+}
+
+export function reconstructSecurities(docs, prices, histories, fx, date, historical = false, savedQuotes = []) {
   let known = 0;
   const missing = new Set();
   let count = 0;
@@ -24,11 +30,11 @@ export function reconstructSecurities(docs, prices, histories, fx, date, histori
     // Xetra's official 2025 calendar confirms the exchange was closed Dec 31.
     // This exception must not be applied to a fund NAV or arbitrary weekdays.
     const boundary = historical && date === openingDate && doc.symbol.endsWith('.DE') ? '2025-12-30' : date;
-    const price = historical ? priceAt(histories[doc.symbol], boundary)?.close : quote?.current;
+    const saved = historical ? savedOpeningQuote(savedQuotes, doc.symbol, date) : null;
+    const price = historical ? saved?.close ?? priceAt(histories[doc.symbol], boundary)?.close : quote?.current;
     if (!historical && (!validDate(quote?.quote_date) || quote.quote_date > date || elapsedDays(quote.quote_date, date) > 7)) { missing.add(doc.symbol); continue; }
-    const value = !Number.isFinite(price) || price < 0 ? null : currencyConverter(fx, quote?.currency)(price * held.reduce((s, l) => s + l.quantity, 0), date);
+    const value = !Number.isFinite(price) || price < 0 ? null : currencyConverter(fx, saved?.currency ?? quote?.currency)(price * held.reduce((s, l) => s + l.quantity, 0), date);
     if (value === null || !Number.isFinite(value)) missing.add(doc.symbol); else known += value;
   }
   return { known_value_eur: known, complete: missing.size === 0, missing_symbols: [...missing], position_count: count };
 }
-
