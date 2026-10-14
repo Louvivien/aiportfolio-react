@@ -1,15 +1,17 @@
+import type { ReactNode } from "react";
 import type { PortfolioTotals, TotalMetric } from "../utils/portfolio";
 import { formatCurrency, formatSignedPercent } from "../utils/format";
 
 interface TotalsPanelProps {
   totals: PortfolioTotals;
   currency?: string;
+  children?: ReactNode;
 }
 
 const POSITIVE_BADGE = "#34a853";
 const NEGATIVE_BADGE = "#d93025";
 
-export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
+export function TotalsPanel({ totals, currency = "EUR", children }: TotalsPanelProps) {
   const badgeColor = (value: number | null) => value === null ? "#64748b" : value >= 0 ? POSITIVE_BADGE : NEGATIVE_BADGE;
   const intradayColor = badgeColor(totals.portfolioIntradayPct);
   const tenDayColor = badgeColor(totals.tenDayPctTotal);
@@ -73,6 +75,7 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
           10D P/L: {money(totals.tenDayAbsolute)} (
           {percentage(totals.tenDayPctTotal)}) {partial("ten_day")}
         </span>
+        {children}
       </div>
     </div>
   );

@@ -50,17 +50,18 @@ figures. A numerical TRI failure can still retain the independently verified EUR
 gain. After year-end, live quotes cannot stand in for the 2026 closing valuation.
 
 This replaces the global rolling-1Y badge. Per-security and tag 1Y P/L analysis,
-and the existing lot-based exports, retain their separate meaning. The new card
-provides its own export with methodology, dated flows and completeness reasons.
+and the existing lot-based exports, retain their separate meaning. The API retains methodology, dated flows and completeness reasons for audit.
 
 
 When all numerical inputs are available but coverage, transfer review or credit
 dates remain provisional, the API also provides an explicit `indicative` result.
 The same XIRR and EUR-gain formulas use the recorded flows and known dates, without
 changing evidence confirmations. Definitive top-level metrics remain null.
-The interface displays these calculated metrics with a discreet “Indicatif” note;
-assumptions appear inside the collapsed “Données et hypothèses du calcul” detail.
+The interface keeps the original dashboard layout. Its third totals badge, formerly
+“1Y P/L”, now shows “Performance 2026” with the EUR gain and effective percentage.
+There is no additional panel, status label or explanatory text in the dashboard.
+Assumptions and confirmation status remain in the API response.
 Missing prices/cash, stale cash dates, invalid amounts/dates, duplicate movements
 and unknown external-flow classification block indicative results too. In that
-case the interface displays a dash, with the reason in the detail. The UI never
+case the badge displays a dash; the API retains the reason. The UI never
 uses “Incomplet” as the metric value. Exports retain all audit information.

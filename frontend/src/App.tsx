@@ -8,7 +8,7 @@ import PositionsTable, { SortConfig, SortableColumn } from "./components/Positio
 import TagSummary from "./components/TagSummary";
 import TimeseriesPanel from "./components/TimeseriesPanel";
 import TotalsPanel from "./components/TotalsPanel";
-import Performance2026Panel from "./components/Performance2026Panel";
+import Performance2026Badge from "./components/Performance2026Badge";
 import PositionsPie from "./components/PositionsPie";
 import PositionsPnLBar from "./components/PositionsPnLBar";
 import NewsAgendaPanel from "./components/NewsAgendaPanel";
@@ -520,8 +520,9 @@ function App() {
         totalMarketValueOpen={portfolioTotals.totals.totalMarketValueOpen}
       />
 
-      <TotalsPanel totals={portfolioTotals.totals} />
-      {!loading && <Performance2026Panel revision={positions.map((p) => `${p.id}:${p.updated_at}:${p.current_price}`).join("|")} />}
+      <TotalsPanel totals={portfolioTotals.totals}>
+        {!loading && <Performance2026Badge revision={positions.map((p) => `${p.id}:${p.updated_at}:${p.current_price}`).join("|")} />}
+      </TotalsPanel>
 
       {loading ? (
         <div className="card">
