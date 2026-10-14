@@ -1,5 +1,6 @@
 import axios from "axios";
 import type { SaleRequest, SalePreview } from "./sales";
+import type { PersonalPerformance } from "./performance";
 import type {
   CreatePositionPayload,
   ForumPostsResponse,
@@ -25,6 +26,10 @@ const client = axios.create({
 
 const unwrap = <T>(promise: Promise<{ data: T }>): Promise<T> =>
   promise.then((response) => response.data);
+
+export function fetchPersonalPerformance2026(): Promise<PersonalPerformance> {
+  return unwrap(client.get<PersonalPerformance>("/performance/2026", { timeout: 90000 }));
+}
 
 const normalizeDateValue = (value: unknown): string | null => {
   if (!value) {

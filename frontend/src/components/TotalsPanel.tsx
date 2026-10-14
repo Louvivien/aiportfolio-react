@@ -13,7 +13,6 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
   const badgeColor = (value: number | null) => value === null ? "#64748b" : value >= 0 ? POSITIVE_BADGE : NEGATIVE_BADGE;
   const intradayColor = badgeColor(totals.portfolioIntradayPct);
   const tenDayColor = badgeColor(totals.tenDayPctTotal);
-  const oneYearColor = badgeColor(totals.oneYearPctTotal);
   const partial = (key: TotalMetric) => totals.coverage[key].missingLots > 0
     ? <small title={totals.coverage[key].issues.join("\n")} style={{ marginLeft: 6 }}>Partial</small> : null;
   const money = (value: number | null) => value === null ? "Unavailable" : formatCurrency(value, currency);
@@ -73,13 +72,6 @@ export function TotalsPanel({ totals, currency = "EUR" }: TotalsPanelProps) {
         >
           10D P/L: {money(totals.tenDayAbsolute)} (
           {percentage(totals.tenDayPctTotal)}) {partial("ten_day")}
-        </span>
-        <span
-          className="badge"
-          style={{ background: oneYearColor, color: "#fff", fontSize: 14, padding: "6px 12px" }}
-        >
-          1Y P/L: {money(totals.oneYearAbsolute)} (
-          {percentage(totals.oneYearPctTotal)}) {partial("one_year")}
         </span>
       </div>
     </div>

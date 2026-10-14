@@ -4,6 +4,7 @@ import { initDb } from "./db.js";
 import monthlyReportsRouter from "./routes/monthlyReports.js";
 import positionsRouter from "./routes/positions.js";
 import tagsRouter from "./routes/tags.js";
+import performanceRouter from "./routes/performance.js";
 
 let appPromise;
 
@@ -21,6 +22,7 @@ async function buildApp() {
   app.use("/api/tags", tagsRouter);
   app.use("/api/monthly-reports", monthlyReportsRouter);
   app.use("/api/positions", positionsRouter);
+  app.use("/api/performance", performanceRouter);
 
   app.use((err, req, res, next) => {
     // eslint-disable-next-line no-console
