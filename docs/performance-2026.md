@@ -19,7 +19,8 @@ keeps a temporary provider outage from discarding known opening data.
 
 Account cash is never inferred from trades or replaced with zero. Evidence fields
 `opening_cash_eur`, `current_cash_eur` and `current_cash_date` must be supplied.
-`scope_complete`, `flow_history_complete` and `transfers_reviewed` must be confirmed.
+`scope_complete`, `flow_history_complete` and `transfers_reviewed` must be confirmed
+for a definitive result.
 The opening and current securities valuations must also be complete. Existing
 position records alone cannot establish full account coverage or cash balances.
 
@@ -51,3 +52,15 @@ gain. After year-end, live quotes cannot stand in for the 2026 closing valuation
 This replaces the global rolling-1Y badge. Per-security and tag 1Y P/L analysis,
 and the existing lot-based exports, retain their separate meaning. The new card
 provides its own export with methodology, dated flows and completeness reasons.
+
+
+When all numerical inputs are available but coverage, transfer review or credit
+dates remain provisional, the API also provides an explicit `indicative` result.
+The same XIRR and EUR-gain formulas use the recorded flows and known dates, without
+changing evidence confirmations. Definitive top-level metrics remain null.
+The interface displays these calculated metrics with a discreet “Indicatif” note;
+assumptions appear inside the collapsed “Données et hypothèses du calcul” detail.
+Missing prices/cash, stale cash dates, invalid amounts/dates, duplicate movements
+and unknown external-flow classification block indicative results too. In that
+case the interface displays a dash, with the reason in the detail. The UI never
+uses “Incomplet” as the metric value. Exports retain all audit information.

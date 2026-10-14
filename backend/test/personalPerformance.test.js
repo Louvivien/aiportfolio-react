@@ -55,6 +55,7 @@ test('missing cash, provisional credit dates and incomplete histories suppress d
   }
   const result = calculatePersonalPerformance(evidence(), { ...snapshot(1000), complete: false, missing_symbols: ['FUND'] }, snapshot(1100), '2026-10-14');
   assert.equal(result.status, 'incomplete'); assert.match(result.missing.join(' '), /FUND/);
+  assert.equal(result.indicative, null);
 });
 
 test('unconfirmed currencies, duplicate IDs and invalid dates cannot yield a return', () => {
@@ -64,6 +65,7 @@ test('unconfirmed currencies, duplicate IDs and invalid dates cannot yield a ret
     [{ ...movement('transfer', 'deposit', 500), external_to_combined_scope: null }]]) {
     const result = calculatePersonalPerformance(evidence(events), snapshot(1000), snapshot(1500), '2026-10-14');
     assert.equal(result.status, 'incomplete'); assert.equal(result.effective_return_pct, null);
+    assert.equal(result.indicative, null);
   }
 });
 
@@ -77,4 +79,30 @@ test('same-day flows are grouped and future movements are excluded', () => {
 test('nonconventional flows are flagged rather than selecting an arbitrary IRR', () => {
   assert.throws(() => solveXirr([{ date: '2026-01-01', amount: -100 }, { date: '2026-02-01', amount: 230 },
     { date: '2026-03-01', amount: -200 }, { date: '2026-10-14', amount: 90 }]), /plusieurs solutions/);
+});
+
+
+test('provisional coverage and transfer dates yield an explicit indicative result without confirming evidence', () => {
+  const input = { ...evidence([{ ...movement('pea', 'deposit', 320), date_confirmed: false }]),
+    flow_history_complete: false, transfers_reviewed: false, scope_complete: false };
+  const original = structuredClone(input);
+  const provisional = calculatePersonalPerformance(input, snapshot(1000), snapshot(1500), '2026-10-14');
+  const confirmed = calculatePersonalPerformance(evidence([movement('pea', 'deposit', 320)]), snapshot(1000), snapshot(1500), '2026-10-14');
+  assert.equal(provisional.status, 'incomplete');
+  assert.equal(provisional.effective_return_pct, null);
+  assert.equal(provisional.net_gain_eur, null);
+  close(provisional.indicative.effective_return_pct, confirmed.effective_return_pct);
+  close(provisional.indicative.net_gain_eur, 180);
+  assert.deepEqual(provisional.indicative.assumptions, provisional.missing);
+  assert.deepEqual(input, original);
+});
+
+test('missing numerical inputs block indicative calculations as well', () => {
+  for (const override of [{ opening_cash_eur: null }, { current_cash_eur: null },
+    { current_cash_date: '2026-10-13' }, { dated_movements: null }]) {
+    const result = calculatePersonalPerformance({ ...evidence(), flow_history_complete: false, ...override },
+      snapshot(1000), snapshot(1100), '2026-10-14');
+    assert.equal(result.indicative, null);
+    assert.equal(result.effective_return_pct, null);
+  }
 });

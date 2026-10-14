@@ -6,25 +6,29 @@ import { downloadJson } from "../utils/export";
 
 export function Performance2026Result({ report }: { report: PersonalPerformance }) {
   const money = (value: number | null) => value === null ? "À renseigner" : formatCurrency(value, "EUR");
-  const available = report.status === "complete";
+  const indicative = report.indicative;
+  const result = indicative ?? (report.status !== "incomplete" ? report : null);
+  const rate = result?.effective_return_pct ?? null;
+  const gain = result?.net_gain_eur ?? null;
   return <>
     <p className="muted">Du 1er janvier 2026 au {formatDate(report.as_of)} · Ensemble des comptes suivis, en EUR</p>
     <div className="totals-primary">
       <div className="metric-card">
         <h4>Performance 2026</h4>
-        <p>{available && report.effective_return_pct !== null ? formatSignedPercent(report.effective_return_pct) : report.status === "incomplete" ? "Incomplet" : "Indisponible"}</p>
+        <p>{rate !== null ? formatSignedPercent(rate) : "—"}</p>
       </div>
       <div className="metric-card">
         <h4>Gain 2026 (€)</h4>
-        <p>{report.status !== "incomplete" && report.net_gain_eur !== null ? money(report.net_gain_eur) : "Incomplet"}</p>
+        <p>{gain !== null ? money(gain) : "—"}</p>
       </div>
     </div>
-    {report.missing.length > 0 && <div style={{ marginTop: 16 }}>
-      <strong>Informations nécessaires pour terminer le calcul</strong>
-      <ul>{report.missing.map((reason) => <li key={reason}>{reason}</li>)}</ul>
-    </div>}
+    {indicative && (rate !== null || gain !== null) && <p className="muted">Indicatif · Calculé à partir des positions et des flux enregistrés.</p>}
     <details style={{ marginTop: 16 }}>
-      <summary>Données prises en compte</summary>
+      <summary>Données et hypothèses du calcul</summary>
+      {report.missing.length > 0 && <div style={{ marginTop: 12 }}>
+        <strong>{indicative ? "Hypothèses à confirmer" : "Données nécessaires au calcul"}</strong>
+        <ul>{report.missing.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+      </div>}
       <div style={{ overflowX: "auto", marginTop: 12 }}>
         <table className="table">
           <thead><tr><th>Élément</th><th>Montant</th></tr></thead>

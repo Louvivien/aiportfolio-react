@@ -44,6 +44,8 @@ export function solveXirr(flows) {
 export function calculatePersonalPerformance(evidence, opening, current, asOf) {
   const start = '2026-01-01';
   const missing = [];
+  let blocked = false;
+  const requireInput = (reason) => { blocked = true; missing.push(reason); };
   if (!validDate(asOf) || asOf < start || asOf > '2026-12-31')
     throw new Error('La date de valorisation doit appartenir à 2026.');
   if (evidence?.flow_history_complete !== true) missing.push('Confirmer que tous les versements et retraits externes de 2026 sont enregistrés.');
@@ -51,13 +53,13 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
   if (evidence?.scope_complete !== true) missing.push('Confirmer que les positions couvrent tout le périmètre suivi, hors PER, Epsor et cryptomonnaies.');
   const openingCash = evidence?.opening_cash_eur;
   const currentCash = evidence?.current_cash_eur;
-  if (!amount(openingCash)) missing.push('Renseigner le total des liquidités au 31/12/2025.');
+  if (!amount(openingCash)) requireInput('Renseigner le total des liquidités au 31/12/2025.');
   if (!amount(currentCash) || evidence?.current_cash_date !== asOf)
-    missing.push(`Renseigner le total des liquidités au ${asOf}, à la même date que les titres.`);
+    requireInput(`Renseigner le total des liquidités au ${asOf}, à la même date que les titres.`);
   const openingValid = opening.complete === true && amount(opening.known_value_eur);
   const currentValid = current.complete === true && amount(current.known_value_eur);
-  if (!openingValid) missing.push(`Compléter la valorisation des titres au 31/12/2025 : ${opening.missing_symbols.join(', ') || 'données manquantes'}.`);
-  if (!currentValid) missing.push(`Compléter la valorisation actuelle des titres : ${current.missing_symbols.join(', ') || 'données manquantes'}.`);
+  if (!openingValid) requireInput(`Compléter la valorisation des titres au 31/12/2025 : ${opening.missing_symbols.join(', ') || 'données manquantes'}.`);
+  if (!currentValid) requireInput(`Compléter la valorisation actuelle des titres : ${current.missing_symbols.join(', ') || 'données manquantes'}.`);
   const initial = openingValid && amount(openingCash) ? opening.known_value_eur + openingCash : null;
   const final = currentValid && amount(currentCash) && evidence?.current_cash_date === asOf
     ? current.known_value_eur + currentCash : null;
@@ -66,16 +68,16 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
   const seen = new Set();
   const totals = { personal_deposits_eur: 0, withdrawals_eur: 0, promotions_eur: 0 };
   for (const movement of evidence?.dated_movements ?? []) {
-    if (seen.has(movement.id) || !movement.id) { missing.push('Un mouvement est dupliqué ou sans identifiant.'); continue; }
+    if (seen.has(movement.id) || !movement.id) { requireInput('Un mouvement est dupliqué ou sans identifiant.'); continue; }
     seen.add(movement.id);
     if (['buy', 'sell', 'dividend', 'interest', 'fee'].includes(movement.direction)) continue;
     if (movement.external_to_combined_scope === false) continue;
-    if (movement.external_to_combined_scope !== true) { missing.push('La nature externe de certains mouvements reste à confirmer.'); continue; }
-    if (!['deposit', 'withdrawal', 'promotion'].includes(movement.direction)) { missing.push('Un mouvement doit être classé.'); continue; }
+    if (movement.external_to_combined_scope !== true) { requireInput('La nature externe de certains mouvements reste à confirmer.'); continue; }
+    if (!['deposit', 'withdrawal', 'promotion'].includes(movement.direction)) { requireInput('Un mouvement doit être classé.'); continue; }
     if (movement.currency !== 'EUR' || !Number.isSafeInteger(movement.amount_cents) || movement.amount_cents <= 0) {
-      missing.push('Un montant doit être confirmé et converti en EUR à la date du flux.'); continue;
+      requireInput('Un montant doit être confirmé et converti en EUR à la date du flux.'); continue;
     }
-    if (!validDate(movement.date)) { missing.push('La date de certains mouvements est manquante ou invalide.'); continue; }
+    if (!validDate(movement.date)) { requireInput('La date de certains mouvements est manquante ou invalide.'); continue; }
     if (movement.date < start || movement.date > asOf) continue;
     if (movement.date_confirmed !== true) missing.push('Confirmer les dates de crédit effectives des versements Bourse Direct ; les dates connues sont celles d’émission.');
     const value = movement.amount_cents / 100;
@@ -84,7 +86,7 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
     flows.push({ date: movement.date, amount: movement.direction === 'withdrawal' ? value : -value });
     movements.push({ id: movement.id, date: movement.date, type: movement.direction, amount_eur: value, date_confirmed: movement.date_confirmed === true });
   }
-  if (!evidence?.dated_movements) missing.push('Renseigner les flux externes datés.');
+  if (!evidence?.dated_movements) requireInput('Renseigner les flux externes datés.');
   const netPersonal = totals.personal_deposits_eur - totals.withdrawals_eur;
   const report = {
     label: 'Performance 2026', currency: 'EUR', period_start: start, opening_valuation_date: '2025-12-31', as_of: asOf,
@@ -92,16 +94,23 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
     opening: { ...opening, cash_eur: openingCash ?? null, total_eur: initial },
     current: { ...current, cash_eur: currentCash ?? null, cash_date: evidence?.current_cash_date ?? null, total_eur: final },
     flows: { ...totals, net_personal_eur: netPersonal, net_capital_eur: netPersonal + totals.promotions_eur, movements },
-    missing: [...new Set(missing)], annualized_xirr: null, effective_return_pct: null, net_gain_eur: null,
+    missing: [...new Set(missing)], indicative: null, annualized_xirr: null, effective_return_pct: null, net_gain_eur: null,
     methodology: 'XIRR des flux externes consolidés en EUR, converti en rendement effectif depuis le 01/01/2026. La clôture du 31/12/2025 constitue le capital à l’ouverture du 01/01. Primes traitées comme apports ; achats, ventes et transferts internes exclus. Dividendes, intérêts et frais inclus uniquement via les soldes réels.',
   };
-  if (missing.length) return report;
-  report.net_gain_eur = final - initial - netPersonal - totals.promotions_eur;
+  if (blocked) return report;
+  // Unconfirmed coverage and proxy credit dates allow only an explicitly
+  // indicative result. Missing numerical inputs never allow a calculation.
+  const result = missing.length ? {
+    annualized_xirr: null, effective_return_pct: null, net_gain_eur: null,
+    assumptions: [...report.missing],
+  } : report;
+  if (missing.length) report.indicative = result;
+  result.net_gain_eur = final - initial - netPersonal - totals.promotions_eur;
   try {
     if (elapsedDays(start, asOf) <= 0) throw new Error('La période doit couvrir au moins un jour.');
-    report.annualized_xirr = solveXirr([{ date: start, amount: -initial }, ...flows, { date: asOf, amount: final }]);
-    report.effective_return_pct = Math.expm1(Math.log1p(report.annualized_xirr) * elapsedDays(start, asOf) / 365) * 100;
-    if (Math.abs(report.effective_return_pct) < 1e-10) report.effective_return_pct = 0;
+    result.annualized_xirr = solveXirr([{ date: start, amount: -initial }, ...flows, { date: asOf, amount: final }]);
+    result.effective_return_pct = Math.expm1(Math.log1p(result.annualized_xirr) * elapsedDays(start, asOf) / 365) * 100;
+    if (Math.abs(result.effective_return_pct) < 1e-10) result.effective_return_pct = 0;
   } catch (error) {
     report.status = 'unavailable'; report.missing.push(error.message);
   }

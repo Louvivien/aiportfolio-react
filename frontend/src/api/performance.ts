@@ -28,5 +28,11 @@ export interface PersonalPerformance {
   annualized_xirr: number | null;
   effective_return_pct: number | null;
   net_gain_eur: number | null;
+  indicative?: {
+    annualized_xirr: number | null;
+    effective_return_pct: number | null;
+    net_gain_eur: number | null;
+    assumptions: string[];
+  } | null;
   methodology: string;
 }
