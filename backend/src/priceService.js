@@ -12,9 +12,11 @@ const quoteDay = (value) => day(typeof value === 'number' ? value * 1000 : value
 const YAHOO_CHART_HOSTS = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
 
 const priceCache = new Map();
+const priceInflight = new Map();
 const historyCache = new Map();
 const resolutionCache = new Map();
 let yahooBlockedUntilMs = 0;
+let yahooQuoteBlockedUntilMs = 0;
 
 // Export function to clear caches (for debugging/manual refresh)
 export function clearAllCaches() {
@@ -22,6 +24,7 @@ export function clearAllCaches() {
   historyCache.clear();
   resolutionCache.clear();
   yahooBlockedUntilMs = 0;
+  yahooQuoteBlockedUntilMs = 0;
   console.log('All price caches cleared, Yahoo block lifted');
 }
 
@@ -486,7 +489,7 @@ async function fetchYahooChartApi(symbol) {
     };
   } catch (err) {
     console.log(`[YahooChart] Error for ${symbol}: ${err.message}`);
-    return null;
+    throw err;
   }
 }
 
@@ -494,16 +497,21 @@ async function fetchYahooFallback(symbol) {
   if (!symbol) {
     return null;
   }
-  if (nowMs() < yahooBlockedUntilMs) {
-    return null;
-  }
   const upper = symbol.toUpperCase();
 
   // Try chart API first (more reliable, less rate-limiting)
-  const chartData = await fetchYahooChartApi(upper);
-  if (chartData) return chartData;
+  if (nowMs() >= yahooBlockedUntilMs) {
+    try {
+      const chartData = await fetchYahooChartApi(upper);
+      if (chartData) return chartData;
+    } catch (error) {
+      // An unknown ticker will not be fixed by requesting a quote-session cookie.
+      if (error?.status === 404) return null;
+    }
+  }
 
-  // Fall back to library method
+  // The authenticated quote endpoint has a separate rate limit from charts.
+  if (nowMs() < yahooQuoteBlockedUntilMs) return null;
   try {
     const quote = await yahooFinance.quote(upper);
 
@@ -530,7 +538,7 @@ async function fetchYahooFallback(symbol) {
   } catch (error) {
     const message = String(error?.message || "");
     if (message.includes("Too Many Requests") || message.includes("429")) {
-      yahooBlockedUntilMs = nowMs() + 15 * 60 * 1000;
+      yahooQuoteBlockedUntilMs = nowMs() + 15 * 60 * 1000;
     }
     return null;
   }
@@ -614,7 +622,7 @@ async function resolveAndFetchPrice(symbol) {
       let resolvedCurrency = currencyMatch?.[1] ?? null;
 
       if (!longName || !resolvedCurrency) {
-        const chartMeta = await fetchYahooChartApi(upper);
+        const chartMeta = await fetchYahooChartApi(upper).catch(() => null);
         if (chartMeta) {
           longName = chartMeta.long_name ?? longName;
           resolvedCurrency = chartMeta.currency ?? resolvedCurrency;
@@ -756,12 +764,16 @@ export async function getPrices(symbols) {
 
   if (toFetch.length) {
     const fetched = await mapWithConcurrency(toFetch, MAX_CONCURRENCY, async (symbol) => {
-      try {
-        const entry = await resolveAndFetchPrice(symbol);
-        return [symbol, entry];
-      } catch {
-        return [symbol, emptyPriceEntry()];
+      // Positions, totals and tags request the same symbols concurrently.
+      // Share the pending request instead of multiplying provider traffic.
+      let pending = priceInflight.get(symbol);
+      if (!pending) {
+        pending = resolveAndFetchPrice(symbol)
+          .catch(() => emptyPriceEntry())
+          .finally(() => priceInflight.delete(symbol));
+        priceInflight.set(symbol, pending);
       }
+      return [symbol, await pending];
     });
     for (const [symbol, entry] of fetched) {
       results[symbol] = entry;
