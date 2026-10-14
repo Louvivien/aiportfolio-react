@@ -2,6 +2,7 @@ import { loadFxRates, currencyConverter } from "../fxService.js";
 import { addValuation } from "../valuationService.js";
 import { buildTagSummary } from "../tagSummaryService.js";
 import { recordSale, previewSale } from "../saleService.js";
+import { assertNonnegativeClosingPrices } from "../positionValidation.js";
 import { positionLots, safePeRatio, sum, holdingsAt } from "../finance.js";
 import { Router } from "express";
 import { ObjectId } from "mongodb";
@@ -628,6 +629,7 @@ router.post("/", async (req, res, next) => {
   try {
     const { positions } = getCollections();
     const body = req.body || {};
+    assertNonnegativeClosingPrices(body);
 
     const displayName = normalizeDisplayName(body.display_name);
     const apiUrl = normalizeApiUrl(body.api_url);
@@ -826,6 +828,7 @@ router.put("/:id", async (req, res, next) => {
 
     const updates = {};
     const body = req.body || {};
+    assertNonnegativeClosingPrices(body);
     const existingApiUrl = typeof existing.api_url === "string" ? existing.api_url : null;
 
     if (body.display_name !== undefined) {
