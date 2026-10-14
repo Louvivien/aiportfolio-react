@@ -37,6 +37,7 @@ test('incomplete global performance does not render a plausible percentage or ga
 test('complete performance shows the effective rate and separate gain, without account breakdown', () => {
   const html = renderToStaticMarkup(React.createElement(Performance2026Result, { report: { ...fixture, status: 'complete', missing: [], effective_return_pct: 7.25, annualized_xirr: 0.13, net_gain_eur: 1200 } }));
   assert.match(html, /7\.25%/); assert.match(html, /1,200\.00/); assert.doesNotMatch(html, /13\.00%|Trade Republic|DEGIRO/);
+  assert.match(html, /\+€1,200\.00/);
 });
 
 test('a failed request stays neutral and an older response cannot overwrite a newer revision', async () => {
@@ -76,4 +77,33 @@ test('2026 badge occupies the former 1Y slot inside the existing totals card', a
   assert.equal((html.match(/class="badge"/g) ?? []).length, 3);
   assert.match(html, /Today P\/L:.*10D P\/L:.*Performance 2026:/s);
   assert.doesNotMatch(html, /1Y P\/L:|Indicatif/);
+});
+
+test('the badge refreshes changed cash/flows without a position edit and discards obsolete requests', async () => {
+  const originalWindow = globalThis.window;
+  const listeners = new Map();
+  let tick, cleared = false, view;
+  globalThis.window = {
+    setInterval: (callback, delay) => { assert.equal(delay, 60000); tick = callback; return 7; },
+    clearInterval: (id) => { assert.equal(id, 7); cleared = true; },
+    addEventListener: (name, handler) => listeners.set(name, handler),
+    removeEventListener: (name) => listeners.delete(name),
+  };
+  try {
+    globalThis.__performanceApi = async () => ({ ...fixture, status: 'complete', effective_return_pct: 5, net_gain_eur: 500 });
+    await renderer.act(async () => { view = renderer.create(React.createElement(Panel, { revision: 'same-positions' })); });
+    let obsolete;
+    globalThis.__performanceApi = () => new Promise((resolve) => { obsolete = resolve; });
+    await renderer.act(async () => tick());
+    globalThis.__performanceApi = async () => ({ ...fixture, status: 'complete', effective_return_pct: 6, net_gain_eur: 600 });
+    await renderer.act(async () => listeners.get('focus')());
+    await renderer.act(async () => obsolete({ ...fixture, status: 'complete', effective_return_pct: 99, net_gain_eur: 999 }));
+    assert.match(JSON.stringify(view.toJSON()), /6\.00%/);
+    assert.doesNotMatch(JSON.stringify(view.toJSON()), /99\.00%/);
+    await renderer.act(async () => view.unmount());
+    assert.equal(cleared, true); assert.equal(listeners.size, 0);
+  } finally {
+    if (view) await renderer.act(async () => view.unmount());
+    if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;
+  }
 });

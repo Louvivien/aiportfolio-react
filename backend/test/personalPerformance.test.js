@@ -125,3 +125,17 @@ test('documented taxes and fees stay internal even if their external flag is mis
   close(result.net_gain_eur, 100);
   assert.equal(result.flows.movements.length, 0);
 });
+
+test('estimated opening cash stays indicative and excluded Alpaca funding never becomes a flow', () => {
+  const input = { ...evidence([{ ...movement('alpaca', 'deposit', 100), account: 'Alpaca' }]),
+    opening_cash_status: 'estimated', performance_scope: { excluded_flow_accounts: ['Alpaca'] } };
+  const result = calculatePersonalPerformance(input, snapshot(1000), snapshot(1100), '2026-10-14');
+  assert.equal(result.status, 'incomplete');
+  close(result.indicative.net_gain_eur, 100);
+  close(result.indicative.effective_return_pct, 10);
+  assert.equal(result.flows.movements.length, 0);
+  assert.equal(result.cash_evidence.opening_status, 'estimated');
+  const changed = calculatePersonalPerformance({ ...input, current_cash_eur: 50 }, snapshot(1000), snapshot(1100), '2026-10-14');
+  close(changed.indicative.net_gain_eur, 150);
+  close(changed.indicative.effective_return_pct, 15);
+});

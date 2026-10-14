@@ -2,7 +2,7 @@ import { getDb } from './db.js';
 import { getPrices, getPriceHistory } from './priceService.js';
 import { loadFxRates } from './fxService.js';
 import { positionLots } from './finance.js';
-import { parisDate, reconstructSecurities, savedOpeningQuote } from './personalPerformanceValuation.js';
+import { parisDate, performancePositions, reconstructSecurities, savedOpeningQuote } from './personalPerformanceValuation.js';
 import { calculatePersonalPerformance } from './personalPerformance.js';
 
 const EVIDENCE_ID = 'personal-management-2026-identified-flows-v1';
@@ -13,10 +13,11 @@ export async function getPersonalPerformance2026() {
   if (pending) return pending;
   pending = (async () => {
     const db = getDb();
-    const [evidence, docs] = await Promise.all([
+    const [evidence, allDocs] = await Promise.all([
       db.collection('performance_inputs').findOne({ _id: EVIDENCE_ID }),
       db.collection('positions').find().toArray(),
     ]);
+    const docs = performancePositions(allDocs, evidence);
     const today = parisDate();
     const asOf = today > '2026-12-31' ? '2026-12-31' : today;
     const symbols = [...new Set(docs.filter((doc) => !doc.api_url).map((doc) => doc.symbol))];
@@ -31,7 +32,7 @@ export async function getPersonalPerformance2026() {
       }))).then((groups) => Object.assign({}, ...groups)),
       loadFxRates(),
     ]);
-    const opening = reconstructSecurities(docs, prices, histories, fx, openingDate, true, evidence?.opening_quotes);
+    const opening = reconstructSecurities(docs, prices, histories, fx, openingDate, true, evidence?.opening_quotes, evidence?.opening_inventory);
     const current = reconstructSecurities(docs, prices, {}, fx, asOf);
     // After year-end a live quote is not a year-end valuation.
     if (today > asOf) { current.complete = false; current.missing_symbols = ['valorisation historique de clôture 2026']; }

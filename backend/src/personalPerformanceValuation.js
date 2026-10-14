@@ -15,20 +15,37 @@ export function savedOpeningQuote(quotes, symbol, date) {
     && Number.isFinite(quote.close) && quote.close >= 0 && typeof quote.currency === 'string' && quote.currency.length > 0);
 }
 
-export function reconstructSecurities(docs, prices, histories, fx, date, historical = false, savedQuotes = []) {
+export function performancePositions(docs, evidence) {
+  const excluded = new Set(evidence?.performance_scope?.excluded_symbols ?? []);
+  return docs.filter((doc) => !excluded.has(doc.symbol));
+}
+
+export function reconstructSecurities(docs, prices, histories, fx, date, historical = false, savedQuotes = [], openingInventory = []) {
   let known = 0;
   const missing = new Set();
   let count = 0;
+  const inventory = historical && date === openingDate ? openingInventory.filter((entry) => entry.date === date) : [];
+  for (const entry of inventory) {
+    if (!docs.some((doc) => String(doc._id) === entry.position_id && doc.symbol === entry.symbol)) missing.add(entry.symbol);
+  }
   for (const doc of docs) {
+    const entries = inventory.filter((entry) => entry.position_id === String(doc._id));
+    const override = entries[0];
+    if (entries.length > 1 || (override && (override.symbol !== doc.symbol || !Number.isFinite(override.quantity)
+      || override.quantity < 0 || !['user_confirmed', 'documented'].includes(override.status)))) {
+      missing.add(doc.symbol);
+      continue;
+    }
     // A quoted price does not validate an opening inventory. Preserve legacy
     // aggregates for editing, but never value a known-unreconciled opening lot.
-    if (historical && date === openingDate && doc.reconciliation?.opening_inventory_status === 'unverified') {
+    if (!override && historical && date === openingDate && doc.reconciliation?.opening_inventory_status === 'unverified') {
       missing.add(doc.symbol);
       continue;
     }
     const lots = positionLots(doc);
-    if (lots.some((lot) => !lot.purchase_date || (lot.is_closed && !lot.closing_date))) missing.add(doc.symbol);
-    const held = lots.filter((lot) => lot.purchase_date && lot.purchase_date <= date && (!lot.is_closed || lot.closing_date > date));
+    if (!override && lots.some((lot) => !lot.purchase_date || (lot.is_closed && !lot.closing_date))) missing.add(doc.symbol);
+    const held = override ? (override.quantity > 0 ? [{ quantity: override.quantity }] : [])
+      : lots.filter((lot) => lot.purchase_date && lot.purchase_date <= date && (!lot.is_closed || lot.closing_date > date));
     if (!held.length) continue;
     count++;
     if (doc.api_url || held.some((lot) => !Number.isFinite(lot.quantity) || lot.quantity <= 0)) { missing.add(doc.symbol); continue; }

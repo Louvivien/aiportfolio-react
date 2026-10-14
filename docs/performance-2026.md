@@ -89,3 +89,30 @@ not just a general lack of confirmation. Superseded cash declarations are retain
 in the reconciliation history; missing consolidated cash is null, never zero.
 Individual cash observations are not summed across incompatible valuation dates.
 No dashboard layout change is required; the existing badge uses its neutral dash.
+
+## Performance-only scope and confirmed opening inventory
+
+`performance_scope.excluded_symbols` filters only this calculation. NVIDIA uses
+its complete stored quantity at each boundary, including the Alpaca fraction;
+SOXL is excluded. `excluded_flow_accounts` excludes Alpaca funding. Consolidated
+cash is the user-declared amount for the five other accounts; no Alpaca cash is
+inferred. These rules do not alter main-portfolio lots or other indicators.
+
+`opening_inventory` can record a dated, documented or user-confirmed quantity
+for a position ID and symbol. It replaces only its 31 December opening quantity,
+never its price, current quantity or purchase cost. This allows the confirmed
+Parrot and H2O inventories to override the former unreconciled aggregates without
+inventing residual purchase prices. Duplicate/invalid entries and missing target
+positions make opening valuation incomplete. Stored opening quotes and historical
+FX still determine value; no EUR contribution or performance is hardcoded.
+
+An `opening_cash_status` of `estimated` always keeps the result indicative, even
+if all other confirmations are complete. Historical transaction gaps can remain
+nonblocking documentary issues when endpoint holdings, declared cash and external
+flows provide the calculation inputs. Prior issue assessments are retained in
+the evidence history rather than silently erased.
+
+The existing badge reloads on position changes, every minute and on window focus,
+so changes to evidence also refresh it. It ignores responses from superseded
+requests. The backend always reads the latest inputs; the market-price cache has
+a one-minute TTL. The exact cash observation date remains part of validation.

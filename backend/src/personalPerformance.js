@@ -57,6 +57,8 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
   if (evidence?.scope_complete !== true) missing.push('Confirmer que les positions couvrent tout le périmètre suivi, hors PER, Epsor et cryptomonnaies.');
   const openingCash = evidence?.opening_cash_eur;
   const currentCash = evidence?.current_cash_eur;
+  if (evidence?.opening_cash_status === 'estimated')
+    missing.push('Les liquidités initiales sont une hypothèse utilisateur estimée, non un solde bancaire certifié.');
   if (!amount(openingCash)) requireInput('Renseigner le total des liquidités au 31/12/2025.');
   if (!amount(currentCash) || evidence?.current_cash_date !== asOf)
     requireInput(`Renseigner le total des liquidités au ${asOf}, à la même date que les titres.`);
@@ -71,7 +73,9 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
   const movements = [];
   const seen = new Set();
   const totals = { personal_deposits_eur: 0, withdrawals_eur: 0, promotions_eur: 0 };
+  const excludedFlowAccounts = new Set(evidence?.performance_scope?.excluded_flow_accounts ?? []);
   for (const movement of evidence?.dated_movements ?? []) {
+    if (excludedFlowAccounts.has(movement.account)) continue;
     if (seen.has(movement.id) || !movement.id) { requireInput('Un mouvement est dupliqué ou sans identifiant.'); continue; }
     seen.add(movement.id);
     if (['buy', 'sell', 'dividend', 'interest', 'fee', 'tax'].includes(movement.direction)) continue;
@@ -100,6 +104,10 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
     flows: { ...totals, net_personal_eur: netPersonal, net_capital_eur: netPersonal + totals.promotions_eur, movements },
     missing: [...new Set(missing)], indicative: null, annualized_xirr: null, effective_return_pct: null, net_gain_eur: null,
     reconciliation_revision: evidence?.accounting_reconciliation?.revision ?? null,
+    input_updated_at: evidence?.updated_at ?? null,
+    scope: evidence?.performance_scope ?? null,
+    opening_inventory: evidence?.opening_inventory ?? [],
+    cash_evidence: { opening_status: evidence?.opening_cash_status ?? null, current_status: evidence?.current_cash_status ?? null },
     methodology: 'XIRR des flux externes consolidés en EUR, converti en rendement effectif depuis le 01/01/2026. La clôture du 31/12/2025 constitue le capital à l’ouverture du 01/01. Primes traitées comme apports ; achats, ventes et transferts internes exclus. Dividendes, intérêts et frais inclus uniquement via les soldes réels.',
   };
   if (blocked) return report;

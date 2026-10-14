@@ -12,7 +12,7 @@ export function Performance2026Result({ report }: { report: PersonalPerformance 
     className="badge"
     style={{ background, color: "#fff", fontSize: 14, padding: "6px 12px" }}
   >
-    Performance 2026: {gain === null ? "—" : formatCurrency(gain, "EUR")} ({rate === null ? "—" : formatSignedPercent(rate)})
+    Performance 2026: {gain === null ? "—" : `${gain > 0 ? "+" : ""}${formatCurrency(gain, "EUR")}`} ({rate === null ? "—" : formatSignedPercent(rate)})
   </span>;
 }
 
@@ -20,10 +20,25 @@ export default function Performance2026Badge({ revision }: { revision: string })
   const [report, setReport] = useState<PersonalPerformance | null>(null);
   useEffect(() => {
     let active = true;
+    let request = 0;
     setReport(null);
-    fetchPersonalPerformance2026().then((data) => { if (active) setReport(data); })
-      .catch(() => { if (active) setReport(null); });
-    return () => { active = false; };
+    const refresh = () => {
+      const current = ++request;
+      fetchPersonalPerformance2026().then((data) => { if (active && current === request) setReport(data); })
+        .catch(() => { if (active && current === request) setReport(null); });
+    };
+    refresh();
+    // Cash and external flows can change without modifying any position.
+    // Refresh the same badge, including when the user returns to the tab.
+    const timer = typeof window !== "undefined" ? window.setInterval(refresh, 60_000) : null;
+    if (typeof window !== "undefined") window.addEventListener("focus", refresh);
+    return () => {
+      active = false;
+      if (typeof window !== "undefined") {
+        if (timer !== null) window.clearInterval(timer);
+        window.removeEventListener("focus", refresh);
+      }
+    };
   }, [revision]);
   return <Performance2026Result report={report} />;
 }
