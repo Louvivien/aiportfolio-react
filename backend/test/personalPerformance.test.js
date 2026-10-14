@@ -106,3 +106,22 @@ test('missing numerical inputs block indicative calculations as well', () => {
     assert.equal(result.effective_return_pct, null);
   }
 });
+
+test('documented omissions block even an indicative return despite numeric cash inputs', () => {
+  const result = calculatePersonalPerformance({ ...evidence(), accounting_reconciliation: {
+    revision: 'audit-1', unresolved: [{ description: 'SOXL and its funding are not reconciled.', blocks_return: true }],
+  } }, snapshot(1000), snapshot(1100), '2026-10-14');
+  assert.equal(result.reconciliation_revision, 'audit-1');
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.indicative, null);
+  assert.equal(result.net_gain_eur, null);
+  assert.ok(result.missing.includes('SOXL and its funding are not reconciled.'));
+});
+
+test('documented taxes and fees stay internal even if their external flag is mistakenly true', () => {
+  const result = calculatePersonalPerformance(evidence([
+    movement('tax', 'tax', 2.78), movement('fee', 'fee', 6),
+  ]), snapshot(1000), snapshot(1100), '2026-10-14');
+  close(result.net_gain_eur, 100);
+  assert.equal(result.flows.movements.length, 0);
+});

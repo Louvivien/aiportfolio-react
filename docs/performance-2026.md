@@ -65,3 +65,27 @@ Missing prices/cash, stale cash dates, invalid amounts/dates, duplicate movement
 and unknown external-flow classification block indicative results too. In that
 case the badge displays a dash; the API retains the reason. The UI never
 uses “Incomplet” as the metric value. Exports retain all audit information.
+
+## Documented accounting corrections
+
+`GET /api/performance/2026/reconciliation` exposes the stored accounting evidence:
+dated broker entries, net cash amounts in integer cents, fees/taxes, source hashes,
+links to existing external-flow IDs, verified account lots and unresolved items.
+This journal is documentary evidence, not an additional set of holdings or flows.
+Trade prices in fully reconciled purchase lots include actual debited fees and
+rounding; sale prices reflect actual net proceeds. The journal retains gross
+execution prices separately, so fees must not be deducted again from lot values.
+
+For an aggregate whose other purchases or account allocations are unknown, keep
+the original quantity and cost rather than derive a residual cost from its average.
+Link confirmed component trades to the existing position and record the remaining
+uncertainty. A position with `reconciliation.opening_inventory_status: 'unverified'`
+is excluded from the known opening subtotal and makes opening valuation incomplete.
+An unchanged legacy purchase date is not evidence of ownership at year-end.
+
+`accounting_reconciliation.unresolved` entries with `blocks_return: true` suppress
+indicative results too. This covers documented omissions and contradictory inputs,
+not just a general lack of confirmation. Superseded cash declarations are retained
+in the reconciliation history; missing consolidated cash is null, never zero.
+Individual cash observations are not summed across incompatible valuation dates.
+No dashboard layout change is required; the existing badge uses its neutral dash.

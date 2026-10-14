@@ -46,6 +46,10 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
   const missing = [];
   let blocked = false;
   const requireInput = (reason) => { blocked = true; missing.push(reason); };
+  for (const issue of evidence?.accounting_reconciliation?.unresolved ?? []) {
+    if (issue.blocks_return === true) requireInput(issue.description);
+    else missing.push(issue.description);
+  }
   if (!validDate(asOf) || asOf < start || asOf > '2026-12-31')
     throw new Error('La date de valorisation doit appartenir à 2026.');
   if (evidence?.flow_history_complete !== true) missing.push('Confirmer que tous les versements et retraits externes de 2026 sont enregistrés.');
@@ -70,7 +74,7 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
   for (const movement of evidence?.dated_movements ?? []) {
     if (seen.has(movement.id) || !movement.id) { requireInput('Un mouvement est dupliqué ou sans identifiant.'); continue; }
     seen.add(movement.id);
-    if (['buy', 'sell', 'dividend', 'interest', 'fee'].includes(movement.direction)) continue;
+    if (['buy', 'sell', 'dividend', 'interest', 'fee', 'tax'].includes(movement.direction)) continue;
     if (movement.external_to_combined_scope === false) continue;
     if (movement.external_to_combined_scope !== true) { requireInput('La nature externe de certains mouvements reste à confirmer.'); continue; }
     if (!['deposit', 'withdrawal', 'promotion'].includes(movement.direction)) { requireInput('Un mouvement doit être classé.'); continue; }
@@ -95,6 +99,7 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
     current: { ...current, cash_eur: currentCash ?? null, cash_date: evidence?.current_cash_date ?? null, total_eur: final },
     flows: { ...totals, net_personal_eur: netPersonal, net_capital_eur: netPersonal + totals.promotions_eur, movements },
     missing: [...new Set(missing)], indicative: null, annualized_xirr: null, effective_return_pct: null, net_gain_eur: null,
+    reconciliation_revision: evidence?.accounting_reconciliation?.revision ?? null,
     methodology: 'XIRR des flux externes consolidés en EUR, converti en rendement effectif depuis le 01/01/2026. La clôture du 31/12/2025 constitue le capital à l’ouverture du 01/01. Primes traitées comme apports ; achats, ventes et transferts internes exclus. Dividendes, intérêts et frais inclus uniquement via les soldes réels.',
   };
   if (blocked) return report;

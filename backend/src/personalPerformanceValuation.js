@@ -20,6 +20,12 @@ export function reconstructSecurities(docs, prices, histories, fx, date, histori
   const missing = new Set();
   let count = 0;
   for (const doc of docs) {
+    // A quoted price does not validate an opening inventory. Preserve legacy
+    // aggregates for editing, but never value a known-unreconciled opening lot.
+    if (historical && date === openingDate && doc.reconciliation?.opening_inventory_status === 'unverified') {
+      missing.add(doc.symbol);
+      continue;
+    }
     const lots = positionLots(doc);
     if (lots.some((lot) => !lot.purchase_date || (lot.is_closed && !lot.closing_date))) missing.add(doc.symbol);
     const held = lots.filter((lot) => lot.purchase_date && lot.purchase_date <= date && (!lot.is_closed || lot.closing_date > date));

@@ -46,3 +46,16 @@ test('saved dated opening prices survive provider outages without freezing quant
   const current = reconstructSecurities([doc], {}, {}, [], '2026-10-14', false, saved);
   assert.equal(current.complete, false); // An old saved price never replaces a live quote.
 });
+
+test('an unreconciled aggregate cannot certify opening inventory, but keeps current holdings', () => {
+  const doc = { symbol: 'PARRO.PA', quantity: 261, purchase_date: '2024-11-28',
+    reconciliation: { opening_inventory_status: 'unverified' } };
+  const quotes = [{ symbol: 'PARRO.PA', valuation_date: '2025-12-31', price_date: '2025-12-31', close: 7.4, currency: 'EUR' }];
+  const opening = reconstructSecurities([doc], {}, {}, [], '2025-12-31', true, quotes);
+  assert.equal(opening.complete, false);
+  assert.equal(opening.known_value_eur, 0);
+  assert.deepEqual(opening.missing_symbols, ['PARRO.PA']);
+  const current = reconstructSecurities([doc], { 'PARRO.PA': { current: 5, currency: 'EUR', quote_date: '2026-10-14' } }, {}, [], '2026-10-14');
+  assert.equal(current.complete, true);
+  assert.equal(current.known_value_eur, 1305);
+});
