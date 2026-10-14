@@ -41,8 +41,10 @@ export function solveXirr(flows) {
   return rate;
 }
 
-export function calculatePersonalPerformance(evidence, opening, current, asOf) {
-  const start = '2026-01-01';
+export function calculatePersonalPerformance(evidence, opening, current, asOf, year = 2026) {
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('Année invalide.');
+  const start = `${year}-01-01`;
+  const openingDate = `${year - 1}-12-31`;
   const missing = [];
   let blocked = false;
   const requireInput = (reason) => { blocked = true; missing.push(reason); };
@@ -50,21 +52,21 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
     if (issue.blocks_return === true) requireInput(issue.description);
     else missing.push(issue.description);
   }
-  if (!validDate(asOf) || asOf < start || asOf > '2026-12-31')
-    throw new Error('La date de valorisation doit appartenir à 2026.');
-  if (evidence?.flow_history_complete !== true) missing.push('Confirmer que tous les versements et retraits externes de 2026 sont enregistrés.');
+  if (!validDate(asOf) || asOf < start || asOf > `${year}-12-31`)
+    throw new Error(`La date de valorisation doit appartenir à ${year}.`);
+  if (evidence?.flow_history_complete !== true) missing.push(`Confirmer que tous les versements et retraits externes de ${year} sont enregistrés.`);
   if (evidence?.transfers_reviewed !== true) missing.push('Vérifier les éventuels transferts internes pour éviter de les compter comme des flux externes.');
   if (evidence?.scope_complete !== true) missing.push('Confirmer que les positions couvrent tout le périmètre suivi, hors PER, Epsor et cryptomonnaies.');
   const openingCash = evidence?.opening_cash_eur;
   const currentCash = evidence?.current_cash_eur;
   if (evidence?.opening_cash_status === 'estimated')
     missing.push('Les liquidités initiales sont une hypothèse utilisateur estimée, non un solde bancaire certifié.');
-  if (!amount(openingCash)) requireInput('Renseigner le total des liquidités au 31/12/2025.');
+  if (!amount(openingCash)) requireInput(`Renseigner le total des liquidités au ${openingDate}.`);
   if (!amount(currentCash) || evidence?.current_cash_date !== asOf)
     requireInput(`Renseigner le total des liquidités au ${asOf}, à la même date que les titres.`);
   const openingValid = opening.complete === true && amount(opening.known_value_eur);
   const currentValid = current.complete === true && amount(current.known_value_eur);
-  if (!openingValid) requireInput(`Compléter la valorisation des titres au 31/12/2025 : ${opening.missing_symbols.join(', ') || 'données manquantes'}.`);
+  if (!openingValid) requireInput(`Compléter la valorisation des titres au ${openingDate} : ${opening.missing_symbols.join(', ') || 'données manquantes'}.`);
   if (!currentValid) requireInput(`Compléter la valorisation actuelle des titres : ${current.missing_symbols.join(', ') || 'données manquantes'}.`);
   const initial = openingValid && amount(openingCash) ? opening.known_value_eur + openingCash : null;
   const final = currentValid && amount(currentCash) && evidence?.current_cash_date === asOf
@@ -97,7 +99,7 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
   if (!evidence?.dated_movements) requireInput('Renseigner les flux externes datés.');
   const netPersonal = totals.personal_deposits_eur - totals.withdrawals_eur;
   const report = {
-    label: 'Performance 2026', currency: 'EUR', period_start: start, opening_valuation_date: '2025-12-31', as_of: asOf,
+    label: `Performance ${year}`, currency: 'EUR', period_start: start, opening_valuation_date: openingDate, as_of: asOf,
     status: missing.length ? 'incomplete' : 'complete',
     opening: { ...opening, cash_eur: openingCash ?? null, total_eur: initial },
     current: { ...current, cash_eur: currentCash ?? null, cash_date: evidence?.current_cash_date ?? null, total_eur: final },
@@ -108,7 +110,7 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf) {
     scope: evidence?.performance_scope ?? null,
     opening_inventory: evidence?.opening_inventory ?? [],
     cash_evidence: { opening_status: evidence?.opening_cash_status ?? null, current_status: evidence?.current_cash_status ?? null },
-    methodology: 'XIRR des flux externes consolidés en EUR, converti en rendement effectif depuis le 01/01/2026. La clôture du 31/12/2025 constitue le capital à l’ouverture du 01/01. Primes traitées comme apports ; achats, ventes et transferts internes exclus. Dividendes, intérêts et frais inclus uniquement via les soldes réels.',
+    methodology: `XIRR des flux externes consolidés en EUR (Actual/365), converti en rendement effectif depuis le ${start}. La clôture du ${openingDate} constitue le capital initial. Primes traitées comme apports ; achats, ventes et transferts internes exclus. Dividendes, intérêts et frais inclus uniquement via les soldes réels. Gain = valeur finale − valeur initiale − versements + retraits − primes. Rendement effectif = (1 + XIRR)^(jours écoulés / 365) − 1.`,
   };
   if (blocked) return report;
   // Unconfirmed coverage and proxy credit dates allow only an explicitly

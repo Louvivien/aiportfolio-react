@@ -1,6 +1,6 @@
 import axios from "axios";
 import type { SaleRequest, SalePreview } from "./sales";
-import type { PersonalPerformance } from "./performance";
+import type { PersonalPerformance, AnnualManagement, AnnualPerformanceInput, AnnualClosePreview } from "./performance";
 import type {
   CreatePositionPayload,
   ForumPostsResponse,
@@ -30,6 +30,23 @@ const unwrap = <T>(promise: Promise<{ data: T }>): Promise<T> =>
 export function fetchPersonalPerformance2026(): Promise<PersonalPerformance> {
   return unwrap(client.get<PersonalPerformance>("/performance/2026", { timeout: 90000 }));
 }
+
+export const fetchAnnualPerformance = (year: number): Promise<PersonalPerformance> =>
+  unwrap(client.get(`/performance/${year}`, { timeout: 90000 }));
+export const fetchAnnualManagement = (year: number): Promise<AnnualManagement> =>
+  unwrap(client.get(`/performance/${year}/manage`, { timeout: 90000 }));
+export const updateAnnualInputs = (year: number, revision: number, patch: Partial<AnnualPerformanceInput>) =>
+  unwrap(client.put(`/performance/${year}/inputs`, { revision, patch }));
+export const prepareNextPerformanceYear = (year: number, revision: number): Promise<{ year: number }> =>
+  unwrap(client.post(`/performance/${year}/prepare-next`, { revision }));
+export const previewPerformanceClose = (year: number, revision: number, cash_eur: number): Promise<AnnualClosePreview> =>
+  unwrap(client.post(`/performance/${year}/close-preview`, { revision, cash_eur }, { timeout: 90000 }));
+export const commitPerformanceClose = (year: number, preview_id: string, update_next_opening: boolean) =>
+  unwrap(client.post(`/performance/${year}/close`, { preview_id, update_next_opening }));
+export const reopenPerformanceYear = (year: number, revision: number) =>
+  unwrap(client.post(`/performance/${year}/reopen`, { revision }));
+export const fetchAnnualAudit = (year: number): Promise<unknown> =>
+  unwrap(client.get(`/performance/${year}/audit`, { timeout: 90000 }));
 
 const normalizeDateValue = (value: unknown): string | null => {
   if (!value) {

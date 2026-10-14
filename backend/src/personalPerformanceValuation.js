@@ -1,4 +1,4 @@
-import { currencyConverter } from './fxService.js';
+import { currencyConverter, exchangeRate } from './fxService.js';
 import { positionLots, priceAt } from './finance.js';
 import { validDate, elapsedDays } from './personalPerformance.js';
 const openingDate = '2025-12-31';
@@ -20,11 +20,12 @@ export function performancePositions(docs, evidence) {
   return docs.filter((doc) => !excluded.has(doc.symbol));
 }
 
-export function reconstructSecurities(docs, prices, histories, fx, date, historical = false, savedQuotes = [], openingInventory = []) {
+export function reconstructSecurities(docs, prices, histories, fx, date, historical = false, savedQuotes = [], openingInventory = [], options = {}) {
   let known = 0;
+  const details = [];
   const missing = new Set();
   let count = 0;
-  const inventory = historical && date === openingDate ? openingInventory.filter((entry) => entry.date === date) : [];
+  const inventory = historical ? openingInventory.filter((entry) => entry.date === date) : [];
   for (const entry of inventory) {
     if (!docs.some((doc) => String(doc._id) === entry.position_id && doc.symbol === entry.symbol)) missing.add(entry.symbol);
   }
@@ -54,10 +55,16 @@ export function reconstructSecurities(docs, prices, histories, fx, date, histori
     // This exception must not be applied to a fund NAV or arbitrary weekdays.
     const boundary = historical && date === openingDate && doc.symbol.endsWith('.DE') ? '2025-12-30' : date;
     const saved = historical ? savedOpeningQuote(savedQuotes, doc.symbol, date) : null;
-    const price = historical ? saved?.close ?? priceAt(histories[doc.symbol], boundary)?.close : quote?.current;
+    const previous = options.allowPreviousQuote ? (histories[doc.symbol] ?? []).filter((p) => validDate(p.date) && p.date <= date && elapsedDays(p.date, date) <= 7 && Number.isFinite(p.close) && p.close > 0).sort((a, b) => b.date.localeCompare(a.date))[0] : null;
+    const historicalQuote = saved ? { date: saved.price_date, close: saved.close } : priceAt(histories[doc.symbol], boundary) ?? previous;
+    const price = historical ? historicalQuote?.close : quote?.current;
     if (!historical && (!validDate(quote?.quote_date) || quote.quote_date > date || elapsedDays(quote.quote_date, date) > 7)) { missing.add(doc.symbol); continue; }
     const value = !Number.isFinite(price) || price < 0 ? null : currencyConverter(fx, saved?.currency ?? quote?.currency)(price * held.reduce((s, l) => s + l.quantity, 0), date);
     if (value === null || !Number.isFinite(value)) missing.add(doc.symbol); else known += value;
+    details.push({ position_id: String(doc._id), symbol: doc.symbol, quantity: held.reduce((s, l) => s + l.quantity, 0),
+      price: price ?? null, price_date: historical ? historicalQuote?.date ?? null : quote?.quote_date ?? null,
+      currency: saved?.currency ?? quote?.currency ?? null, fx: exchangeRate(fx, saved?.currency ?? quote?.currency, date),
+      value_eur: value, inventory_source: override ? override.status : 'recorded_lots' });
   }
-  return { known_value_eur: known, complete: missing.size === 0, missing_symbols: [...missing], position_count: count };
+  return { known_value_eur: known, complete: missing.size === 0, missing_symbols: [...missing], position_count: count, ...(options.details ? { date, positions: details } : {}) };
 }

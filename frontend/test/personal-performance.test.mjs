@@ -20,7 +20,8 @@ const moduleUrl = async (file, imports = {}) => {
 const format = await moduleUrl('../src/utils/format.ts');
 const { Performance2026Result, default: Panel } = await import(await moduleUrl('../src/components/Performance2026Badge.tsx', {
   '../utils/format': format,
-  '../api/client': stub('export const fetchPersonalPerformance2026 = () => globalThis.__performanceApi();'),
+  '../api/client': stub('export const fetchAnnualPerformance = (year) => globalThis.__performanceApi(year);'),
+  './AnnualPerformanceManager': stub('export default function Manager() { return null; }'),
 }));
 const fixture = { status: 'incomplete', as_of: '2026-10-14', effective_return_pct: null, net_gain_eur: null,
   missing: ['Liquidités manquantes'], opening: { known_value_eur: 14340.08, complete: false, cash_eur: null },
@@ -106,4 +107,12 @@ test('the badge refreshes changed cash/flows without a position edit and discard
     if (view) await renderer.act(async () => view.unmount());
     if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;
   }
+});
+
+
+test('the single badge labels the selected year and never substitutes the annualized rate', () => {
+  const html = renderToStaticMarkup(React.createElement(Performance2026Result, { year: 2027, report: {
+    ...fixture, status: 'complete', effective_return_pct: 8, annualized_xirr: .23, net_gain_eur: 100,
+  } }));
+  assert.match(html, /Performance 2027/); assert.match(html, /8\.00%/); assert.doesNotMatch(html, /23\.00%|Performance 2026/);
 });

@@ -1,20 +1,16 @@
 import { Router } from 'express';
-import { getPersonalPerformance2026 } from '../personalPerformanceService.js';
-import { getDb } from '../db.js';
+import { annualState, getAnnualPerformance, annualManagement, updateAnnualInput, prepareNextYear, previewAnnualClose, commitAnnualClose, reopenAnnualYear, annualAudit } from '../annualPerformanceService.js';
 const router = Router();
-// Evidence is separate from position quantities and external flows: importing a
-// broker trade here must not create a second holding or a second XIRR cash flow.
-router.get('/2026/reconciliation', async (_req, res, next) => {
-  try {
-    const evidence = await getDb().collection('performance_inputs').findOne(
-      { _id: 'personal-management-2026-identified-flows-v1' },
-      { projection: { _id: 0, accounting_reconciliation: 1 } },
-    );
-    res.set('Cache-Control', 'no-store').json(evidence?.accounting_reconciliation ?? null);
-  } catch (error) { next(error); }
-});
-router.get('/2026', async (_req, res, next) => {
-  try { res.set('Cache-Control', 'no-store').json(await getPersonalPerformance2026()); }
-  catch (error) { next(error); }
-});
+const handle = (fn) => async (req, res, next) => {
+  try { res.set('Cache-Control', 'no-store').json(await fn(req)); } catch (error) { next(error); }
+};
+router.get('/:year/reconciliation', handle(async (req) => (await annualState(req.params.year)).input.accounting_reconciliation ?? null));
+router.get('/:year/manage', handle((req) => annualManagement(req.params.year)));
+router.get('/:year/audit', handle((req) => annualAudit(req.params.year)));
+router.put('/:year/inputs', handle((req) => updateAnnualInput(req.params.year, req.body ?? {})));
+router.post('/:year/prepare-next', handle((req) => prepareNextYear(req.params.year, req.body?.revision)));
+router.post('/:year/close-preview', handle((req) => previewAnnualClose(req.params.year, req.body ?? {})));
+router.post('/:year/close', handle((req) => commitAnnualClose(req.params.year, req.body ?? {})));
+router.post('/:year/reopen', handle((req) => reopenAnnualYear(req.params.year, req.body?.revision)));
+router.get('/:year', handle((req) => getAnnualPerformance(req.params.year)));
 export default router;
