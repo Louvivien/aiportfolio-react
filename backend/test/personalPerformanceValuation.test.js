@@ -94,3 +94,17 @@ test('performance excludes configured symbols but uses all NVIDIA shares and liv
   assert.ok(Math.abs(value(221.1).known_value_eur - value(220).known_value_eur - 10.436) < 1e-8);
   assert.equal(docs.length, 2); assert.equal(docs[0].quantity, 10.436);
 });
+
+test('open European markets and closed US markets use their respective latest dated quotes', () => {
+  const docs = [{ symbol: 'NVDA', quantity: 10.436, purchase_date: '2024-01-01' },
+    { symbol: 'EXENS.PA', quantity: 35, purchase_date: '2025-11-04' }];
+  const quotes = { NVDA: { current: 220, currency: 'USD', quote_date: '2026-10-14' },
+    'EXENS.PA': { current: 57.45, currency: 'EUR', quote_date: '2026-10-15' } };
+  const result = reconstructSecurities(docs, quotes, {}, [{ date: '2026-10-14', rates: { USD: 1.1 } }], '2026-10-15', false, [], [], { details: true });
+  assert.equal(result.complete, true);
+  assert.ok(Math.abs(result.known_value_eur - (10.436 * 200 + 35 * 57.45)) < 1e-8);
+  assert.equal(result.positions[0].price_date, '2026-10-14');
+  assert.equal(result.positions[1].price_date, '2026-10-15');
+  const stale = reconstructSecurities(docs, { ...quotes, NVDA: { ...quotes.NVDA, quote_date: '2026-10-01' } }, {}, [], '2026-10-15');
+  assert.equal(stale.complete, false);
+});

@@ -41,7 +41,7 @@ export function solveXirr(flows) {
   return rate;
 }
 
-export function calculatePersonalPerformance(evidence, opening, current, asOf, year = 2026) {
+export function calculatePersonalPerformance(evidence, opening, current, asOf, year = 2026, { cashUnchanged = false } = {}) {
   if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new Error('Année invalide.');
   const start = `${year}-01-01`;
   const openingDate = `${year - 1}-12-31`;
@@ -59,17 +59,24 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf, y
   if (evidence?.scope_complete !== true) missing.push('Confirmer que les positions couvrent tout le périmètre suivi, hors PER, Epsor et cryptomonnaies.');
   const openingCash = evidence?.opening_cash_eur;
   const currentCash = evidence?.current_cash_eur;
+  const cashDate = evidence?.current_cash_date;
+  // The service supplies this permission only when recorded financial positions
+  // and flows are unchanged since cash confirmation. Never rewrite its date.
+  const cashCarriedForward = cashUnchanged && validDate(cashDate) && cashDate >= start && cashDate < asOf && amount(currentCash);
+  const cashAvailable = amount(currentCash) && (cashDate === asOf || cashCarriedForward);
+  if (cashCarriedForward)
+    missing.push(`Hypothèse : le solde espèces du ${cashDate} (${currentCash.toFixed(2)} EUR) est repris inchangé au ${asOf}, sans modification des opérations ni des flux enregistrés. Les revenus ou frais non enregistrés peuvent nécessiter une mise à jour.`);
   if (evidence?.opening_cash_status === 'estimated')
     missing.push('Les liquidités initiales sont une hypothèse utilisateur estimée, non un solde bancaire certifié.');
   if (!amount(openingCash)) requireInput(`Renseigner le total des liquidités au ${openingDate}.`);
-  if (!amount(currentCash) || evidence?.current_cash_date !== asOf)
+  if (!cashAvailable)
     requireInput(`Renseigner le total des liquidités au ${asOf}, à la même date que les titres.`);
   const openingValid = opening.complete === true && amount(opening.known_value_eur);
   const currentValid = current.complete === true && amount(current.known_value_eur);
   if (!openingValid) requireInput(`Compléter la valorisation des titres au ${openingDate} : ${opening.missing_symbols.join(', ') || 'données manquantes'}.`);
   if (!currentValid) requireInput(`Compléter la valorisation actuelle des titres : ${current.missing_symbols.join(', ') || 'données manquantes'}.`);
   const initial = openingValid && amount(openingCash) ? opening.known_value_eur + openingCash : null;
-  const final = currentValid && amount(currentCash) && evidence?.current_cash_date === asOf
+  const final = currentValid && cashAvailable
     ? current.known_value_eur + currentCash : null;
   const flows = [];
   const movements = [];
@@ -112,6 +119,7 @@ export function calculatePersonalPerformance(evidence, opening, current, asOf, y
     cash_evidence: { opening_status: evidence?.opening_cash_status ?? null, current_status: evidence?.current_cash_status ?? null },
     methodology: `XIRR des flux externes consolidés en EUR (Actual/365), converti en rendement effectif depuis le ${start}. La clôture du ${openingDate} constitue le capital initial. Primes traitées comme apports ; achats, ventes et transferts internes exclus. Dividendes, intérêts et frais inclus uniquement via les soldes réels. Gain = valeur finale − valeur initiale − versements + retraits − primes. Rendement effectif = (1 + XIRR)^(jours écoulés / 365) − 1.`,
   };
+  if (cashCarriedForward) report.cash_evidence.carried_forward = { source_date: cashDate, valuation_date: asOf, assumption: 'unchanged_since_confirmation' };
   if (blocked) return report;
   // Unconfirmed coverage and proxy credit dates allow only an explicitly
   // indicative result. Missing numerical inputs never allow a calculation.

@@ -42,7 +42,9 @@ export async function annualReport(year, state, docs, today = parisDate(), value
   const fingerprint = positionsFingerprint(performancePositions(docs, input));
   const needsCash = state.cash_needs_review || (state.cash_fingerprint && state.cash_fingerprint !== fingerprint);
   if (needsCash) input.current_cash_eur = null;
-  const report = calculatePersonalPerformance(input, opening, current, asOf, year);
+  const report = calculatePersonalPerformance(input, opening, current, asOf, year, {
+    cashUnchanged: !needsCash && state.cash_fingerprint === fingerprint,
+  });
   if (needsCash) report.missing.push('Les opérations ou flux ont changé : confirmer le solde global des liquidités.');
   if (today < start) report.missing.push('Année non commencée.');
   return { ...report, year, revision: state.revision, closed: false };

@@ -17,6 +17,11 @@ try {
   await db.collection('performance_years').insertOne(fixture);
   const live = await annualReport(2026, fixture, [], '2026-10-14', valueSecurities);
   assert.equal(live.net_gain_eur, 250);
+  const nextDay = await annualReport(2026, fixture, [], '2026-10-15', valueSecurities);
+  assert.equal(nextDay.indicative.net_gain_eur, 250);
+  assert.equal(nextDay.current.cash_date, '2026-10-14');
+  const changedFlows = await annualReport(2026, { ...fixture, cash_needs_review: true }, [], '2026-10-15', valueSecurities);
+  assert.equal(changedFlows.indicative, null); assert.equal(changedFlows.net_gain_eur, null);
   const changed = await annualReport(2026, fixture, [{ _id: 'a', symbol: 'TEST', quantity: 1, purchase_date: '2026-10-14' }], '2026-10-14', valueSecurities);
   assert.equal(changed.net_gain_eur, null); assert.match(changed.missing.join(), /confirmer le solde/);
   await assert.rejects(updateAnnualInput(2026, { revision: 0, patch: { opening_cash_eur: 0 } }), /changé/);

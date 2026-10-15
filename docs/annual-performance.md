@@ -32,7 +32,12 @@ fingerprint. `performance_history` records before/after versions transactionally
 `performance_inputs` remains untouched as the legacy 2026 source/archive.
 
 Cash is manually confirmed as one consolidated EUR total, including its date.
-It must be dated consistently with the current valuation. The application does
+For the live year, a previously confirmed balance in that year is reused when
+the financial-position fingerprint still matches and no flow edit requires a
+cash review. The original confirmation date is preserved; the unchanged-cash
+assumption is disclosed in the management view and JSON audit, and the return
+is indicative. Simply advancing a day does not blank the dashboard. This does
+not establish that unrecorded dividends, interest or fees did not occur. The application does
 not infer cash from incomplete broker histories, carry a closing cash balance
 forward as current cash, or automatically add deposits to an already inclusive
 balance. Changes to recorded financial positions or external flows require cash

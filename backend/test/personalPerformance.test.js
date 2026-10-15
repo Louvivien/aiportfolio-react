@@ -139,3 +139,32 @@ test('estimated opening cash stays indicative and excluded Alpaca funding never 
   close(changed.indicative.net_gain_eur, 150);
   close(changed.indicative.effective_return_pct, 15);
 });
+
+test('unchanged confirmed cash can be carried forward without rewriting its original date', () => {
+  const input = evidence(); input.current_cash_eur = 296.28;
+  const original = structuredClone(input);
+  const result = calculatePersonalPerformance(input, snapshot(1000), snapshot(1100), '2026-10-15', 2026, { cashUnchanged: true });
+  close(result.indicative.net_gain_eur, 396.28);
+  close(result.indicative.effective_return_pct, 39.628);
+  assert.equal(result.current.cash_date, '2026-10-14');
+  assert.equal(result.current.total_eur, 1396.28);
+  assert.equal(result.cash_evidence.carried_forward.source_date, '2026-10-14');
+  assert.equal(result.cash_evidence.carried_forward.valuation_date, '2026-10-15');
+  assert.match(result.indicative.assumptions.join(), /solde espèces du 2026-10-14/);
+  assert.deepEqual(input, original);
+});
+
+test('carrying cash requires unchanged operations and a valid same-year past balance, including zero', () => {
+  for (const change of [{ current_cash_date: null }, { current_cash_date: '2026-02-30' },
+    { current_cash_date: '2026-10-16' }, { current_cash_date: '2025-12-31' }, { current_cash_eur: null }]) {
+    const report = calculatePersonalPerformance({ ...evidence(), ...change }, snapshot(1000), snapshot(1100), '2026-10-15', 2026, { cashUnchanged: true });
+    assert.equal(report.indicative, null); assert.equal(report.net_gain_eur, null);
+  }
+  const changed = calculatePersonalPerformance(evidence(), snapshot(1000), snapshot(1100), '2026-10-15', 2026, { cashUnchanged: false });
+  assert.equal(changed.indicative, null); assert.equal(changed.net_gain_eur, null);
+  const zero = calculatePersonalPerformance(evidence(), snapshot(1000), snapshot(1100), '2026-10-15', 2026, { cashUnchanged: true });
+  close(zero.indicative.net_gain_eur, 100);
+  const sameDay = calculatePersonalPerformance(evidence(), snapshot(1000), snapshot(1100), '2026-10-14', 2026, { cashUnchanged: true });
+  assert.equal(sameDay.status, 'complete'); close(sameDay.net_gain_eur, 100);
+  assert.equal(sameDay.cash_evidence.carried_forward, undefined);
+});

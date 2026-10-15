@@ -103,7 +103,7 @@ export default function AnnualPerformanceManager({ year, onYear, onClose, onChan
         </form>}
       </details>
       <details open><summary>Liquidités globales</summary>
-        <p>Saisir le solde réel, incluant les opérations déjà passées, dividendes, intérêts, frais et taxes. Aucun flux n’est ajouté automatiquement à ce solde. Il doit couvrir le même périmètre que les titres.</p>
+        <p>Le dernier solde connu est repris tant que les opérations et les flux enregistrés n’ont pas changé : aucune confirmation quotidienne n’est nécessaire. Sa date et cette hypothèse restent dans l’audit. Actualiser le solde après une opération, un dividende, des intérêts, des frais ou une taxe. Aucun flux n’est ajouté automatiquement au montant saisi. Il doit couvrir le même périmètre que les titres.</p>
         <form onSubmit={(e) => { e.preventDefault(); void run(() => save({ current_cash_eur: euros(cash), current_cash_date: cashDate }), 'Solde des espèces confirmé.'); }}>
           <label>Total des espèces (€)<input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value)} required disabled={disabled || data.closed} /></label>
           <label>Date du solde<input type="date" value={cashDate} min={`${year}-01-01`} max={data.today < `${year}-12-31` ? data.today : `${year}-12-31`} onChange={(e) => setCashDate(e.target.value)} required disabled={disabled || data.closed} /></label>
